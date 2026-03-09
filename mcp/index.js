@@ -22,7 +22,7 @@ const toolDefinitions = [
   },
   {
     name: "audit_mcp_server",
-    description: "Launch a target MCP server over stdio, enumerate tools, and run active security probes against its exposed tools.",
+    description: "Launch a target MCP server over stdio, enumerate tools, and run active security probes against its exposed tools. Requires AGENT_SECURITY_ADMIN_MODE=1.",
     inputSchema: {
       type: "object",
       properties: {
@@ -176,6 +176,9 @@ async function runAuditTool(toolName, args) {
     case "audit_mcp_config":
       return executeAuditJob("config", "mcp-config", async () => analyzeConfig(safeArgs.config));
     case "audit_mcp_server": {
+      if (!process.env.AGENT_SECURITY_ADMIN_MODE) {
+        return { error: "audit_mcp_server is disabled by default. Set AGENT_SECURITY_ADMIN_MODE=1 to enable active server probing." };
+      }
       const MCP_COMMAND_ALLOWLIST = new Set(["node", "python3", "python", "npx", "uvx", "deno", "bun"]);
       const commandBase = typeof safeArgs.command === "string" ? safeArgs.command.trim().split(/ +/)[0] : "";
       if (!commandBase || !MCP_COMMAND_ALLOWLIST.has(commandBase)) {
