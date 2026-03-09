@@ -3,7 +3,7 @@ const { probeServer } = require("../lib/server-prober");
 const { testPromptInjection } = require("../lib/injection-tester");
 const { traceDataFlow } = require("../lib/dataflow-tracer");
 const { scanPackage } = require("../lib/package-scanner");
-const { generateCombinedReport, PORT } = require("../index");
+const { executeAuditJob, generateCombinedReport } = require("../index");
 
 const toolDefinitions = [
   {
@@ -22,7 +22,7 @@ const toolDefinitions = [
   },
   {
     name: "audit_mcp_server",
-    description: "Launch a target MCP server over stdio, enumerate tools, and run active security probes.",
+    description: "Launch a target MCP server over stdio, enumerate tools, and run active security probes against its exposed tools.",
     inputSchema: {
       type: "object",
       properties: {
@@ -47,7 +47,7 @@ const toolDefinitions = [
   },
   {
     name: "audit_prompt_injection",
-    description: "Evaluate a system prompt against a 30+ payload prompt injection battery.",
+    description: "Perform a static prompt-hardening review against a 30+ payload prompt-injection catalog.",
     inputSchema: {
       type: "object",
       properties: {
@@ -61,12 +61,12 @@ const toolDefinitions = [
           }
         }
       },
-      required: ["system_prompt", "tools"]
+      required: ["system_prompt"]
     }
   },
   {
     name: "audit_agent_dataflow",
-    description: "Trace tagged test data through MCP tool capabilities and identify exfiltration paths.",
+    description: "Infer tagged-data exposure and exfiltration paths from MCP config and observed tool capabilities.",
     inputSchema: {
       type: "object",
       properties: {
@@ -150,71 +150,63 @@ async function loadServerSdk() {
   };
 }
 
-async function callLocalApi(pathname, payload) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 1500);
-
-  try {
-    const response = await fetch(`http://127.0.0.1:${PORT}${pathname}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json"
-      },
-      body: JSON.stringify(payload || {}),
-      signal: controller.signal
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    return await response.json();
-  } finally {
-    clearTimeout(timeout);
-  }
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-async function runDirectTool(toolName, args) {
+function sanitizeEnv(envInput) {
+  if (!isPlainObject(envInput)) {
+    return undefined;
+  }
+
+  const env = {};
+  for (const [key, value] of Object.entries(envInput)) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && typeof value === "string") {
+      env[key] = value;
+    }
+  }
+
+  return Object.keys(env).length ? env : undefined;
+}
+
+async function runAuditTool(toolName, args) {
+  const safeArgs = isPlainObject(args) ? args : {};
+
   switch (toolName) {
     case "audit_mcp_config":
-      return analyzeConfig(args.config);
-    case "audit_mcp_server":
-      return probeServer({
-        command: args.command,
-        args: Array.isArray(args.args) ? args.args : [],
-        env: args.env
-      });
+      return executeAuditJob("config", "mcp-config", async () => analyzeConfig(safeArgs.config));
+    case "audit_mcp_server": {
+      const MCP_COMMAND_ALLOWLIST = new Set(["node", "python3", "python", "npx", "uvx", "deno", "bun"]);
+      const commandBase = typeof safeArgs.command === "string" ? safeArgs.command.trim().split(/ +/)[0] : "";
+      if (!commandBase || !MCP_COMMAND_ALLOWLIST.has(commandBase)) {
+        return { error: "Command not allowed. Permitted: " + [...MCP_COMMAND_ALLOWLIST].join(", ") };
+      }
+      const commandArgs = Array.isArray(safeArgs.args) ? safeArgs.args.map((value) => String(value)) : [];
+      const target = [safeArgs.command, ...commandArgs].join(" ").trim();
+      return executeAuditJob("server", target, async () => probeServer({
+        command: safeArgs.command,
+        args: commandArgs,
+        env: sanitizeEnv(safeArgs.env)
+      }));
+    }
     case "audit_prompt_injection":
-      return testPromptInjection(args.system_prompt, Array.isArray(args.tools) ? args.tools : []);
+      return executeAuditJob("injection", "prompt-surface", async () => testPromptInjection(
+        safeArgs.system_prompt,
+        Array.isArray(safeArgs.tools) ? safeArgs.tools.map((value) => String(value)) : []
+      ));
     case "audit_agent_dataflow":
-      return traceDataFlow(args.mcp_config, args.test_pii);
+      return executeAuditJob("dataflow", "mcp-pipeline", async () => traceDataFlow(safeArgs.mcp_config, safeArgs.test_pii));
     case "scan_mcp_package":
-      return scanPackage(args.package_name);
+      return executeAuditJob("package", safeArgs.package_name, async () => scanPackage(safeArgs.package_name));
     case "generate_report":
-      return generateCombinedReport(Array.isArray(args.audit_ids) ? args.audit_ids : []);
+      return generateCombinedReport(Array.isArray(safeArgs.audit_ids) ? safeArgs.audit_ids.map((value) => String(value)) : []);
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
 }
 
 async function dispatchTool(toolName, args) {
-  const httpMappings = {
-    audit_mcp_config: "/audit/config",
-    audit_mcp_server: "/audit/server",
-    audit_prompt_injection: "/audit/injection",
-    audit_agent_dataflow: "/audit/dataflow",
-    scan_mcp_package: "/audit/package"
-  };
-
-  if (httpMappings[toolName]) {
-    try {
-      return await callLocalApi(httpMappings[toolName], args);
-    } catch (error) {
-      return runDirectTool(toolName, args);
-    }
-  }
-
-  return runDirectTool(toolName, args);
+  return runAuditTool(toolName, args);
 }
 
 async function main() {
