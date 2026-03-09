@@ -5,6 +5,6 @@ state.sqlite-wal
 *.log
 .env
 
-# VPS service files (private repo: joepangallo/agent-security-audit)
+# VPS service files (not part of this package)
 /index.js
 /SPEC.md
