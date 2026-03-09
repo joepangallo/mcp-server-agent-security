@@ -1,4 +1,4 @@
-const { analyzeConfig } = require("../lib/config-analyzer");
+const { analyzeConfig, parseConfig, getServerEntries } = require("../lib/config-analyzer");
 const { probeServer } = require("../lib/server-prober");
 const { testPromptInjection } = require("../lib/injection-tester");
 const { traceDataFlow } = require("../lib/dataflow-tracer");
@@ -7,12 +7,15 @@ const {
   ACTIVE_SERVER_PROBING_DISABLED_MESSAGE,
   executeAuditJob,
   generateCombinedReport,
-  isAdminModeEnabled
+  isAdminModeEnabled,
+  testOnly: {
+    isSafeNpmPackageSpec,
+    sanitizeConfigLaunchTargets,
+    validateServerLaunchSpec
+  }
 } = require("../index");
 const {
-  MCP_COMMAND_ALLOWLIST,
-  findDisallowedRuntimeEnvKeys,
-  isCommandAllowed
+  MCP_COMMAND_ALLOWLIST
 } = require("../lib/runtime-policy");
 
 const toolDefinitions = [
@@ -164,25 +167,6 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function sanitizeEnv(envInput) {
-  if (!isPlainObject(envInput)) {
-    return undefined;
-  }
-
-  const env = {};
-  for (const [key, value] of Object.entries(envInput)) {
-    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && typeof value === "string") {
-      env[key] = value;
-    }
-  }
-
-  return Object.keys(env).length ? env : undefined;
-}
-
-function formatDisallowedEnvMessage(keys) {
-  return `env contains reserved runtime keys that cannot be overridden: ${keys.join(", ")}.`;
-}
-
 async function runAuditTool(toolName, args) {
   const safeArgs = isPlainObject(args) ? args : {};
 
@@ -193,20 +177,15 @@ async function runAuditTool(toolName, args) {
       if (!isAdminModeEnabled()) {
         return { error: ACTIVE_SERVER_PROBING_DISABLED_MESSAGE };
       }
-      if (!isCommandAllowed(safeArgs.command, MCP_COMMAND_ALLOWLIST)) {
-        return { error: "Command not allowed. Permitted: " + [...MCP_COMMAND_ALLOWLIST].join(", ") };
+      const validatedLaunch = validateServerLaunchSpec(safeArgs.command, safeArgs.args, safeArgs.env);
+      if (validatedLaunch.error) {
+        return { error: validatedLaunch.error };
       }
-      const safeEnv = sanitizeEnv(safeArgs.env);
-      const disallowedEnvKeys = findDisallowedRuntimeEnvKeys(safeEnv);
-      if (disallowedEnvKeys.length) {
-        return { error: formatDisallowedEnvMessage(disallowedEnvKeys) };
-      }
-      const commandArgs = Array.isArray(safeArgs.args) ? safeArgs.args.map((value) => String(value)) : [];
-      const target = [safeArgs.command, ...commandArgs].join(" ").trim();
+      const target = [validatedLaunch.command, ...validatedLaunch.args].join(" ").trim();
       return executeAuditJob("server", target, async () => probeServer({
-        command: safeArgs.command,
-        args: commandArgs,
-        env: safeEnv
+        command: validatedLaunch.command,
+        args: validatedLaunch.args,
+        env: validatedLaunch.env
       }));
     }
     case "audit_prompt_injection":
@@ -214,14 +193,36 @@ async function runAuditTool(toolName, args) {
         safeArgs.system_prompt,
         Array.isArray(safeArgs.tools) ? safeArgs.tools.map((value) => String(value)) : []
       ));
-    case "audit_agent_dataflow":
-      return executeAuditJob("dataflow", "mcp-pipeline", async () => traceDataFlow(safeArgs.mcp_config, safeArgs.test_pii, {
+    case "audit_agent_dataflow": {
+      let parsedConfig;
+      try {
+        parsedConfig = parseConfig(safeArgs.mcp_config);
+      } catch (error) {
+        return { error: error.message };
+      }
+
+      const serverEntries = getServerEntries(parsedConfig);
+      const containsLocalLaunchers = serverEntries.some(([, server]) => server && typeof server.command === "string" && server.command.trim());
+      if (containsLocalLaunchers && !isAdminModeEnabled()) {
+        return { error: ACTIVE_SERVER_PROBING_DISABLED_MESSAGE };
+      }
+
+      const sanitizedConfig = sanitizeConfigLaunchTargets(parsedConfig);
+      if (sanitizedConfig.error) {
+        return { error: sanitizedConfig.error };
+      }
+
+      return executeAuditJob("dataflow", "mcp-pipeline", async () => traceDataFlow(sanitizedConfig.parsed, safeArgs.test_pii, {
         adminModeEnabled: isAdminModeEnabled(),
         allowLiveEnumeration: isAdminModeEnabled(),
         commandAllowlist: MCP_COMMAND_ALLOWLIST
       }));
+    }
     case "scan_mcp_package":
-      return executeAuditJob("package", safeArgs.package_name, async () => scanPackage(safeArgs.package_name));
+      if (typeof safeArgs.package_name !== "string" || !isSafeNpmPackageSpec(safeArgs.package_name.trim())) {
+        return { error: "package_name must be a valid npm registry package identifier." };
+      }
+      return executeAuditJob("package", safeArgs.package_name.trim(), async () => scanPackage(safeArgs.package_name.trim()));
     case "generate_report":
       return generateCombinedReport(Array.isArray(safeArgs.audit_ids) ? safeArgs.audit_ids.map((value) => String(value)) : []);
     default:
@@ -266,7 +267,9 @@ async function main() {
       const toolName = request && request.params ? request.params.name : "";
       const args = request && request.params && request.params.arguments ? request.params.arguments : {};
       const result = await dispatchTool(toolName, args);
+      const isToolError = Boolean(result && typeof result === "object" && typeof result.error === "string" && result.error);
       return {
+        ...(isToolError ? { isError: true } : {}),
         content: [
           {
             type: "text",

@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("fs");
 const { testOnly } = require("../lib/server-prober");
 
 test("path traversal detection ignores echoed payloads", () => {
@@ -42,6 +43,28 @@ test("runtime environment strips reserved launch-control overrides", () => {
   assert.equal(env.SAFE_TOKEN, "allowed");
   assert.notEqual(env.PATH, "/tmp/evil-bin");
   assert.equal(env.NODE_OPTIONS, undefined);
+});
+
+test("runtime environment uses an isolated home directory for probed servers", async () => {
+  const sandbox = await testOnly.createRuntimeSandbox();
+
+  try {
+    const env = testOnly.buildRuntimeEnvironment({
+      SAFE_TOKEN: "allowed",
+      HOME: "/tmp/ignored-home"
+    }, {
+      internalEnv: sandbox.env
+    });
+
+    assert.equal(env.SAFE_TOKEN, "allowed");
+    assert.equal(env.HOME, sandbox.env.HOME);
+    assert.equal(env.USERPROFILE, sandbox.env.USERPROFILE);
+    assert.equal(env.XDG_CONFIG_HOME, sandbox.env.XDG_CONFIG_HOME);
+    await fs.promises.stat(sandbox.env.HOME);
+    await fs.promises.stat(sandbox.env.XDG_CONFIG_HOME);
+  } finally {
+    await fs.promises.rm(sandbox.rootDir, { recursive: true, force: true });
+  }
 });
 
 test("sql injection detection looks for parser errors instead of backend names", () => {

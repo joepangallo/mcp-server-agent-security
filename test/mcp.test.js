@@ -33,3 +33,47 @@ test("audit_mcp_server requires AGENT_SECURITY_ADMIN_MODE=1 exactly", async () =
     }
   }
 });
+
+test("audit_mcp_server rejects malformed env input", async () => {
+  const originalAdminMode = process.env.AGENT_SECURITY_ADMIN_MODE;
+
+  try {
+    process.env.AGENT_SECURITY_ADMIN_MODE = "1";
+    const result = await runAuditTool("audit_mcp_server", {
+      command: "node",
+      env: ["not-an-object"]
+    });
+    assert.match(result.error, /env/i);
+  } finally {
+    if (originalAdminMode === undefined) {
+      delete process.env.AGENT_SECURITY_ADMIN_MODE;
+    } else {
+      process.env.AGENT_SECURITY_ADMIN_MODE = originalAdminMode;
+    }
+  }
+});
+
+test("audit_agent_dataflow blocks local command launchers without admin mode", async () => {
+  const originalAdminMode = process.env.AGENT_SECURITY_ADMIN_MODE;
+
+  try {
+    process.env.AGENT_SECURITY_ADMIN_MODE = "0";
+    const result = await runAuditTool("audit_agent_dataflow", {
+      mcp_config: JSON.stringify({
+        mcpServers: {
+          local: {
+            command: "node",
+            args: ["server.js"]
+          }
+        }
+      })
+    });
+    assert.match(result.error, /AGENT_SECURITY_ADMIN_MODE=1/);
+  } finally {
+    if (originalAdminMode === undefined) {
+      delete process.env.AGENT_SECURITY_ADMIN_MODE;
+    } else {
+      process.env.AGENT_SECURITY_ADMIN_MODE = originalAdminMode;
+    }
+  }
+});
