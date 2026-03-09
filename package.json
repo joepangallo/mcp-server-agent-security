@@ -1,6 +1,6 @@
 {
   "name": "mcp-server-agent-security",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Security auditor for AI agents and MCP servers — config analysis, prompt injection testing, tool probing, data flow tracing",
   "type": "commonjs",
   "main": "lib/index.js",
