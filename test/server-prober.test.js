@@ -32,6 +32,18 @@ test("shell execution detection requires both a canary and command output", () =
   );
 });
 
+test("runtime environment strips reserved launch-control overrides", () => {
+  const env = testOnly.buildRuntimeEnvironment({
+    SAFE_TOKEN: "allowed",
+    PATH: "/tmp/evil-bin",
+    NODE_OPTIONS: "--require /tmp/evil.js"
+  });
+
+  assert.equal(env.SAFE_TOKEN, "allowed");
+  assert.notEqual(env.PATH, "/tmp/evil-bin");
+  assert.equal(env.NODE_OPTIONS, undefined);
+});
+
 test("sql injection detection looks for parser errors instead of backend names", () => {
   const payload = "' OR '1'='1' --";
 

@@ -10,6 +10,7 @@ const { generateReport } = require("./lib/report-generator");
 const { createFinding } = require("./lib/findings");
 const {
   MCP_COMMAND_ALLOWLIST,
+  findDisallowedRuntimeEnvKeys,
   isAdminModeEnabled,
   isCommandAllowed
 } = require("./lib/runtime-policy");
@@ -38,18 +39,42 @@ function sanitizeExtraFields(result) {
     // Sensitive probe data — never persist raw output or captured secrets
     "outputSample", "disclosures", "rawOutput", "samples", "text", "response"
   ]);
+  const seen = new WeakSet();
 
   function scrub(val, depth) {
-    if (depth > 6 || val === null || typeof val !== "object") return val;
-    if (Array.isArray(val)) return val.map((v) => scrub(v, depth + 1));
-    const out = {};
-    for (const [k, v] of Object.entries(val)) {
-      if (!BLOCKED_KEYS.has(k)) out[k] = scrub(v, depth + 1);
+    if (val === null || typeof val !== "object") {
+      return val;
     }
-    return out;
+    if (depth > 6) {
+      return Array.isArray(val) ? [] : "[truncated]";
+    }
+    if (seen.has(val)) {
+      return "[circular]";
+    }
+
+    seen.add(val);
+    try {
+      if (Array.isArray(val)) {
+        return val.map((v) => scrub(v, depth + 1));
+      }
+
+      const out = {};
+      for (const [k, v] of Object.entries(val)) {
+        if (!BLOCKED_KEYS.has(k)) {
+          out[k] = scrub(v, depth + 1);
+        }
+      }
+      return out;
+    } finally {
+      seen.delete(val);
+    }
   }
 
   return scrub(result || {}, 0);
+}
+
+function formatDisallowedEnvMessage(keys) {
+  return `env contains reserved runtime keys that cannot be overridden: ${keys.join(", ")}.`;
 }
 
 function sanitizeEnvInput(envInput) {
@@ -272,6 +297,12 @@ function createApp() {
     const env = sanitizeEnvInput(req.body.env);
     if (env === null) {
       res.status(400).json({ error: "env must be an object of string key/value pairs." });
+      return;
+    }
+
+    const disallowedEnvKeys = findDisallowedRuntimeEnvKeys(env);
+    if (disallowedEnvKeys.length) {
+      res.status(400).json({ error: formatDisallowedEnvMessage(disallowedEnvKeys) });
       return;
     }
 

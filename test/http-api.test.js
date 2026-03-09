@@ -103,3 +103,29 @@ test("malformed JSON requests return sanitized errors", async () => {
     await ctx.close();
   }
 });
+
+test("unsafe runtime env overrides are rejected before server launch", async () => {
+  const ctx = await startFreshServer({ AGENT_SECURITY_ADMIN_MODE: "1" });
+
+  try {
+    const response = await fetch(`${ctx.baseUrl}/audit/server`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        command: "node",
+        env: {
+          PATH: "/tmp/evil-bin"
+        }
+      })
+    });
+
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.match(body.error, /reserved runtime keys/i);
+    assert.match(body.error, /PATH/);
+  } finally {
+    await ctx.close();
+  }
+});

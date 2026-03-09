@@ -11,6 +11,7 @@ const {
 } = require("../index");
 const {
   MCP_COMMAND_ALLOWLIST,
+  findDisallowedRuntimeEnvKeys,
   isCommandAllowed
 } = require("../lib/runtime-policy");
 
@@ -178,6 +179,10 @@ function sanitizeEnv(envInput) {
   return Object.keys(env).length ? env : undefined;
 }
 
+function formatDisallowedEnvMessage(keys) {
+  return `env contains reserved runtime keys that cannot be overridden: ${keys.join(", ")}.`;
+}
+
 async function runAuditTool(toolName, args) {
   const safeArgs = isPlainObject(args) ? args : {};
 
@@ -191,12 +196,17 @@ async function runAuditTool(toolName, args) {
       if (!isCommandAllowed(safeArgs.command, MCP_COMMAND_ALLOWLIST)) {
         return { error: "Command not allowed. Permitted: " + [...MCP_COMMAND_ALLOWLIST].join(", ") };
       }
+      const safeEnv = sanitizeEnv(safeArgs.env);
+      const disallowedEnvKeys = findDisallowedRuntimeEnvKeys(safeEnv);
+      if (disallowedEnvKeys.length) {
+        return { error: formatDisallowedEnvMessage(disallowedEnvKeys) };
+      }
       const commandArgs = Array.isArray(safeArgs.args) ? safeArgs.args.map((value) => String(value)) : [];
       const target = [safeArgs.command, ...commandArgs].join(" ").trim();
       return executeAuditJob("server", target, async () => probeServer({
         command: safeArgs.command,
         args: commandArgs,
-        env: sanitizeEnv(safeArgs.env)
+        env: safeEnv
       }));
     }
     case "audit_prompt_injection":
