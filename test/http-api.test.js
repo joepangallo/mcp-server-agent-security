@@ -79,3 +79,27 @@ test("health is public but active server probing requires admin mode", async () 
     await ctx.close();
   }
 });
+
+test("malformed JSON requests return sanitized errors", async () => {
+  const ctx = await startFreshServer();
+
+  try {
+    const response = await fetch(`${ctx.baseUrl}/audit/config`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: "{\"config\":"
+    });
+
+    assert.equal(response.status, 400);
+    assert.match(response.headers.get("content-type") || "", /application\/json/);
+
+    const body = await response.json();
+    assert.deepEqual(body, {
+      error: "Malformed JSON body."
+    });
+  } finally {
+    await ctx.close();
+  }
+});

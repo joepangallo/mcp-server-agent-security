@@ -9,6 +9,10 @@ const {
   generateCombinedReport,
   isAdminModeEnabled
 } = require("../index");
+const {
+  MCP_COMMAND_ALLOWLIST,
+  isCommandAllowed
+} = require("../lib/runtime-policy");
 
 const toolDefinitions = [
   {
@@ -184,9 +188,7 @@ async function runAuditTool(toolName, args) {
       if (!isAdminModeEnabled()) {
         return { error: ACTIVE_SERVER_PROBING_DISABLED_MESSAGE };
       }
-      const MCP_COMMAND_ALLOWLIST = new Set(["node", "python3", "python", "npx", "uvx", "deno", "bun"]);
-      const commandBase = typeof safeArgs.command === "string" ? safeArgs.command.trim().split(/ +/)[0] : "";
-      if (!commandBase || !MCP_COMMAND_ALLOWLIST.has(commandBase)) {
+      if (!isCommandAllowed(safeArgs.command, MCP_COMMAND_ALLOWLIST)) {
         return { error: "Command not allowed. Permitted: " + [...MCP_COMMAND_ALLOWLIST].join(", ") };
       }
       const commandArgs = Array.isArray(safeArgs.args) ? safeArgs.args.map((value) => String(value)) : [];
@@ -203,7 +205,11 @@ async function runAuditTool(toolName, args) {
         Array.isArray(safeArgs.tools) ? safeArgs.tools.map((value) => String(value)) : []
       ));
     case "audit_agent_dataflow":
-      return executeAuditJob("dataflow", "mcp-pipeline", async () => traceDataFlow(safeArgs.mcp_config, safeArgs.test_pii));
+      return executeAuditJob("dataflow", "mcp-pipeline", async () => traceDataFlow(safeArgs.mcp_config, safeArgs.test_pii, {
+        adminModeEnabled: isAdminModeEnabled(),
+        allowLiveEnumeration: isAdminModeEnabled(),
+        commandAllowlist: MCP_COMMAND_ALLOWLIST
+      }));
     case "scan_mcp_package":
       return executeAuditJob("package", safeArgs.package_name, async () => scanPackage(safeArgs.package_name));
     case "generate_report":

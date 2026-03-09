@@ -64,6 +64,7 @@ node mcp/index.js
 ## Security Defaults
 
 - Active probing via `audit_mcp_server`, `/audit/server`, and `agent-security scan-server` is disabled unless `AGENT_SECURITY_ADMIN_MODE=1` is set.
+- `audit_agent_dataflow` remains a static config review unless admin mode is enabled and the local server command is on the same fixed allowlist used for active probing.
 - Audit state is stored in an OS-appropriate per-user directory by default. Override it with `AGENT_SECURITY_DB_PATH` when you need a specific location.
 - `scan_mcp_package` runs npm in an isolated temporary home/cache and uses the public npm registry by default. Set `AGENT_SECURITY_NPM_REGISTRY` to an explicit registry URL if you need a different source.
 
