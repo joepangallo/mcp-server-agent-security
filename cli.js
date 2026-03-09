@@ -4,6 +4,9 @@ const fs = require("fs");
 const path = require("path");
 const { PORT } = require("./index");
 
+const HOST = process.env.AGENT_SECURITY_HOST || "127.0.0.1";
+const API_KEY = process.env.AGENT_SECURITY_API_KEY || "";
+
 function printUsage() {
   process.stderr.write(
     [
@@ -17,11 +20,16 @@ function printUsage() {
 }
 
 async function callApi(method, pathname, payload) {
-  const response = await fetch(`http://127.0.0.1:${PORT}${pathname}`, {
+  const headers = {
+    "content-type": "application/json"
+  };
+  if (API_KEY) {
+    headers["x-api-key"] = API_KEY;
+  }
+
+  const response = await fetch(`http://${HOST}:${PORT}${pathname}`, {
     method,
-    headers: {
-      "content-type": "application/json"
-    },
+    headers,
     body: payload ? JSON.stringify(payload) : undefined
   });
 

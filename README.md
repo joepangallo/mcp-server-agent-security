@@ -61,6 +61,12 @@ node mcp/index.js
 | `scan_mcp_package` | Downloads and inspects an npm package for vulnerabilities, dangerous patterns, and permissions. | `package_name` (string) |
 | `generate_report` | Combines multiple stored audit results into a single executive report with composite scoring. | `audit_ids` (string[]) |
 
+## Security Defaults
+
+- Active probing via `audit_mcp_server`, `/audit/server`, and `agent-security scan-server` is disabled unless `AGENT_SECURITY_ADMIN_MODE=1` is set.
+- Audit state is stored in an OS-appropriate per-user directory by default. Override it with `AGENT_SECURITY_DB_PATH` when you need a specific location.
+- `scan_mcp_package` runs npm in an isolated temporary home/cache and uses the public npm registry by default. Set `AGENT_SECURITY_NPM_REGISTRY` to an explicit registry URL if you need a different source.
+
 ## CLI Usage
 
 The CLI requires the HTTP server to be running on port 3091.
@@ -70,6 +76,7 @@ The CLI requires the HTTP server to be running on port 3091.
 agent-security scan-config ./claude_desktop_config.json
 
 # Probe a live MCP server
+# Requires AGENT_SECURITY_ADMIN_MODE=1
 agent-security scan-server npx -y @modelcontextprotocol/server-filesystem /tmp
 
 # Scan an npm package

@@ -17,7 +17,7 @@ const os = require("os");
 
 function freshStore() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sec-audit-test-"));
-  const tmpDb = path.join(tmpDir, "test.sqlite");
+  process.env.AGENT_SECURITY_DB_PATH = path.join(tmpDir, "test.sqlite");
 
   // Clear module cache so we get a fresh db singleton
   const storePath = require.resolve("../lib/store");

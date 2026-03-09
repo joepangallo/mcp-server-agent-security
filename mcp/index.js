@@ -3,7 +3,12 @@ const { probeServer } = require("../lib/server-prober");
 const { testPromptInjection } = require("../lib/injection-tester");
 const { traceDataFlow } = require("../lib/dataflow-tracer");
 const { scanPackage } = require("../lib/package-scanner");
-const { executeAuditJob, generateCombinedReport } = require("../index");
+const {
+  ACTIVE_SERVER_PROBING_DISABLED_MESSAGE,
+  executeAuditJob,
+  generateCombinedReport,
+  isAdminModeEnabled
+} = require("../index");
 
 const toolDefinitions = [
   {
@@ -176,8 +181,8 @@ async function runAuditTool(toolName, args) {
     case "audit_mcp_config":
       return executeAuditJob("config", "mcp-config", async () => analyzeConfig(safeArgs.config));
     case "audit_mcp_server": {
-      if (!process.env.AGENT_SECURITY_ADMIN_MODE) {
-        return { error: "audit_mcp_server is disabled by default. Set AGENT_SECURITY_ADMIN_MODE=1 to enable active server probing." };
+      if (!isAdminModeEnabled()) {
+        return { error: ACTIVE_SERVER_PROBING_DISABLED_MESSAGE };
       }
       const MCP_COMMAND_ALLOWLIST = new Set(["node", "python3", "python", "npx", "uvx", "deno", "bun"]);
       const commandBase = typeof safeArgs.command === "string" ? safeArgs.command.trim().split(/ +/)[0] : "";
@@ -280,5 +285,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  main
+  main,
+  runAuditTool
 };

@@ -86,3 +86,19 @@ test("detects wildcard/unsafe args patterns", () => {
   assert.ok(unsafeFlagFinding, "should flag --dangerously-skip-permissions");
   assert.equal(unsafeFlagFinding.severity, "high");
 });
+
+test("does not treat project-scoped trailing slashes as root-level filesystem exposure", () => {
+  const result = analyzeConfig({
+    mcpServers: {
+      files: {
+        command: "npx",
+        args: ["@modelcontextprotocol/server-filesystem", "/tmp/project/"]
+      }
+    }
+  });
+
+  const rootExposureFinding = result.findings.find(
+    (finding) => /root or home-level directory/i.test(finding.description)
+  );
+  assert.equal(rootExposureFinding, undefined, "should not flag a project-scoped directory just because it ends with a slash");
+});
