@@ -1,1 +1,10 @@
-node_modules/\nstate.sqlite\n*.log\n.env
+node_modules/
+state.sqlite
+state.sqlite-shm
+state.sqlite-wal
+*.log
+.env
+
+# VPS service files (private repo: joepangallo/agent-security-audit)
+/index.js
+/SPEC.md
