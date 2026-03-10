@@ -14,7 +14,7 @@ const {
 const {
   executeAuditJob,
   generateCombinedReport
-} = require("../index");
+} = require("../lib/audit-orchestration");
 const {
   ACTIVE_SERVER_PROBING_DISABLED_MESSAGE,
   MAX_JSON_INPUT_CHARS,

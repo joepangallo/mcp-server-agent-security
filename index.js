@@ -7,8 +7,6 @@ const { probeServer } = require("./lib/server-prober");
 const { testPromptInjection } = require("./lib/injection-tester");
 const { traceDataFlow } = require("./lib/dataflow-tracer");
 const { scanPackage } = require("./lib/package-scanner");
-const { generateReport } = require("./lib/report-generator");
-const { createFinding } = require("./lib/findings");
 const { fixConfig } = require("./lib/config-fixer");
 const { hardenPrompt } = require("./lib/prompt-hardener");
 const { generatePolicy } = require("./lib/policy-generator");
@@ -47,6 +45,11 @@ const {
   configContainsCommandLaunchers,
   sanitizeEnvInput
 } = require("./lib/validation");
+const {
+  executeAuditJob,
+  generateCombinedReport,
+  INTERNAL_AUDIT_ACCESS_FIELD
+} = require("./lib/audit-orchestration");
 
 const PORT = Number.parseInt(process.env.AGENT_SECURITY_PORT || "", 10) || 3091;
 const HOST = process.env.AGENT_SECURITY_HOST || "127.0.0.1";
@@ -54,9 +57,7 @@ const API_KEY = process.env.AGENT_SECURITY_API_KEY || "";
 
 const COMMAND_ALLOWLIST = MCP_COMMAND_ALLOWLIST;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const RESERVED_OBJECT_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 const RESERVED_RUNTIME_ENV_KEYS = DISALLOWED_RUNTIME_ENV_KEYS;
-const INTERNAL_AUDIT_ACCESS_FIELD = "_access";
 
 const RATE_WINDOW_MS = Number.parseInt(process.env.AGENT_SECURITY_RATE_WINDOW_MS || "", 10) || 60_000;
 const MAX_PROTECTED_REQUESTS_PER_WINDOW = Number.parseInt(process.env.AGENT_SECURITY_RATE_LIMIT || "", 10) || 30;
@@ -203,50 +204,6 @@ function acquireAuditSlot(callerFingerprint) {
   };
 }
 
-function sanitizeExtraFields(result) {
-  const BLOCKED_KEYS = new Set([
-    "id", "score", "grade", "findings", "findingsSummary", "executiveSummary",
-    "generatedAt", INTERNAL_AUDIT_ACCESS_FIELD, ...RESERVED_OBJECT_KEYS,
-    "outputSample", "disclosures", "rawOutput", "samples", "text", "response"
-  ]);
-  const seen = new WeakSet();
-
-  function scrub(val, depth) {
-    if (val === null || typeof val !== "object") {
-      return val;
-    }
-    if (depth > 6) {
-      return Array.isArray(val) ? [] : "[truncated]";
-    }
-    if (seen.has(val)) {
-      return "[circular]";
-    }
-
-    seen.add(val);
-    if (Array.isArray(val)) {
-      try {
-        return val.map((value) => scrub(value, depth + 1));
-      } finally {
-        seen.delete(val);
-      }
-    }
-
-    try {
-      const out = {};
-      for (const [key, value] of Object.entries(val)) {
-        if (!BLOCKED_KEYS.has(key)) {
-          out[key] = scrub(value, depth + 1);
-        }
-      }
-      return out;
-    } finally {
-      seen.delete(val);
-    }
-  }
-
-  return scrub(result || {}, 0);
-}
-
 function buildAuditAccessControl(req) {
   return {
     ownerFingerprint: getCallerFingerprint(req)
@@ -299,85 +256,6 @@ function requireTrustedCaller(req, res, next) {
   next();
 }
 
-async function executeAuditJob(type, target, runner, options = {}) {
-  const accessControl = isPlainObject(options.accessControl) ? options.accessControl : null;
-  const initialFindings = {
-    findings: [],
-    findingsSummary: {
-      total: 0,
-      critical: 0,
-      high: 0,
-      medium: 0,
-      low: 0,
-      info: 0
-    },
-    executiveSummary: "Audit is in progress.",
-    generatedAt: new Date().toISOString()
-  };
-
-  if (accessControl) {
-    initialFindings[INTERNAL_AUDIT_ACCESS_FIELD] = accessControl;
-  }
-
-  const audit = store.createAudit({
-    type,
-    target,
-    status: "running",
-    findings: initialFindings
-  });
-
-  try {
-    const result = await runner();
-    const extraFields = sanitizeExtraFields(result);
-    if (accessControl) {
-      extraFields[INTERNAL_AUDIT_ACCESS_FIELD] = accessControl;
-    }
-    const report = generateReport({
-      id: audit.id,
-      type,
-      target,
-      findings: Array.isArray(result && result.findings) ? result.findings : [],
-      extraFields
-    });
-
-    return store.updateAudit(audit.id, {
-      status: "completed",
-      score: report.score,
-      grade: report.grade,
-      findings: report
-    });
-  } catch (error) {
-    const failureFinding = createFinding({
-      source: "http-api",
-      severity: "high",
-      confidence: "high",
-      cwe: "input_validation",
-      description: `${type} audit encountered an internal error.`,
-      remediation: "Repair the request payload or target environment and rerun the audit."
-    });
-    const extraFields = {
-      error: "Audit failed. Check server logs for details."
-    };
-    if (accessControl) {
-      extraFields[INTERNAL_AUDIT_ACCESS_FIELD] = accessControl;
-    }
-    const report = generateReport({
-      id: audit.id,
-      type,
-      target,
-      findings: [failureFinding],
-      extraFields
-    });
-
-    return store.updateAudit(audit.id, {
-      status: "failed",
-      score: report.score,
-      grade: report.grade,
-      findings: report
-    });
-  }
-}
-
 async function executeManagedAudit(req, res, type, target, runner, timeoutMs) {
   const callerFingerprint = getCallerFingerprint(req);
   const accessControl = buildAuditAccessControl(req);
@@ -398,41 +276,6 @@ async function executeManagedAudit(req, res, type, target, runner, timeoutMs) {
     async () => withTimeout(runnerPromise, timeoutMs || MAX_AUDIT_MS, `${type} audit`),
     { accessControl }
   );
-}
-
-async function generateCombinedReport(auditIds) {
-  const ids = Array.isArray(auditIds) ? auditIds.filter(Boolean) : [];
-
-  if (!ids.length) {
-    throw new Error("At least one audit ID is required.");
-  }
-
-  const audits = ids.map((id) => store.getAudit(id)).filter(Boolean);
-  if (!audits.length) {
-    throw new Error("No matching audits were found.");
-  }
-
-  const missingAuditIds = ids.filter((id) => !audits.find((audit) => audit.id === id));
-  const report = generateReport({
-    type: "report",
-    target: ids.join(", "),
-    auditResults: audits,
-    extraFields: {
-      sourceAuditIds: ids,
-      missingAuditIds
-    }
-  });
-
-  return store.createAudit({
-    id: report.id,
-    type: "report",
-    target: ids.join(", "),
-    status: "completed",
-    score: report.score,
-    grade: report.grade,
-    findings: report,
-    completed_at: report.generatedAt
-  });
 }
 
 function asyncRoute(handler) {
@@ -472,6 +315,23 @@ function createApp() {
     next();
   });
   app.use(express.json({ limit: "5mb" }));
+  app.use((req, res, next) => {
+    const origin = req.get("origin");
+    if (origin) {
+      try {
+        const parsed = new URL(origin);
+        const host = parsed.hostname;
+        if (host !== "localhost" && host !== "127.0.0.1" && host !== "[::1]" && host !== "::1") {
+          res.status(403).json({ error: "Forbidden: non-loopback Origin." });
+          return;
+        }
+      } catch (e) {
+        res.status(403).json({ error: "Forbidden: invalid Origin." });
+        return;
+      }
+    }
+    next();
+  });
   app.use((error, req, res, next) => {
     if (!error) {
       next();

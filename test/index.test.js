@@ -12,14 +12,17 @@ async function withFreshIndex(testFn) {
   process.env.AGENT_SECURITY_DB_PATH = path.join(tmpDir, "state.sqlite");
 
   const storePath = require.resolve("../lib/store");
+  const orchestrationPath = require.resolve("../lib/audit-orchestration");
   const indexPath = require.resolve("../index");
   delete require.cache[storePath];
+  delete require.cache[orchestrationPath];
   delete require.cache[indexPath];
 
   try {
     await testFn(require("../index"));
   } finally {
     delete require.cache[storePath];
+    delete require.cache[orchestrationPath];
     delete require.cache[indexPath];
     await fs.promises.rm(tmpDir, { recursive: true, force: true });
 
