@@ -53,6 +53,73 @@ test("audit_mcp_server rejects malformed env input", async () => {
   }
 });
 
+test("MCP rate limit: 30 calls succeed, 31st is rejected", async () => {
+  const { _testOnly } = require("../mcp/index");
+  _testOnly.resetRateLimits();
+
+  // First 30 calls should all succeed (not return rate limit error)
+  for (let i = 0; i < 30; i++) {
+    const result = await runAuditTool("audit_mcp_config", {
+      config: JSON.stringify({ mcpServers: { s: { command: "node", args: ["x.js"] } } })
+    });
+    assert.ok(!result.error || !result.error.includes("Rate limit"), `call ${i + 1} should not be rate-limited`);
+  }
+
+  // 31st call should be rate-limited
+  const result31 = await runAuditTool("audit_mcp_config", {
+    config: JSON.stringify({ mcpServers: { s: { command: "node", args: ["x.js"] } } })
+  });
+  assert.ok(result31.error, "31st call should return an error");
+  assert.match(result31.error, /rate limit/i);
+
+  // Clean up
+  _testOnly.resetRateLimits();
+});
+
+test("MCP rate limit: reset allows next call to succeed", async () => {
+  const { _testOnly } = require("../mcp/index");
+  _testOnly.resetRateLimits();
+
+  // Exhaust the limit
+  for (let i = 0; i < 30; i++) {
+    await runAuditTool("audit_mcp_config", {
+      config: JSON.stringify({ mcpServers: { s: { command: "node", args: ["x.js"] } } })
+    });
+  }
+
+  // Verify exhausted
+  const blocked = await runAuditTool("audit_mcp_config", {
+    config: JSON.stringify({ mcpServers: { s: { command: "node", args: ["x.js"] } } })
+  });
+  assert.match(blocked.error, /rate limit/i);
+
+  // Reset and verify next call succeeds
+  _testOnly.resetRateLimits();
+  const afterReset = await runAuditTool("audit_mcp_config", {
+    config: JSON.stringify({ mcpServers: { s: { command: "node", args: ["x.js"] } } })
+  });
+  assert.ok(!afterReset.error || !afterReset.error.includes("Rate limit"), "call after reset should succeed");
+
+  _testOnly.resetRateLimits();
+});
+
+test("MCP concurrent audit limit: rejects when mcpActiveAudits >= max", async () => {
+  const { _testOnly } = require("../mcp/index");
+  _testOnly.resetRateLimits();
+
+  // Set active audits to the max (2)
+  _testOnly.setMcpActiveAudits(2);
+
+  const result = await runAuditTool("audit_mcp_config", {
+    config: JSON.stringify({ mcpServers: { s: { command: "node", args: ["x.js"] } } })
+  });
+  assert.ok(result.error, "should return an error when concurrent limit reached");
+  assert.match(result.error, /concurrent/i);
+
+  // Clean up
+  _testOnly.resetRateLimits();
+});
+
 test("audit_agent_dataflow blocks local command launchers without admin mode", async () => {
   const originalAdminMode = process.env.AGENT_SECURITY_ADMIN_MODE;
 

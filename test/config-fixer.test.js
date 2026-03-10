@@ -133,6 +133,54 @@ test("fixes multiple issues simultaneously", () => {
   assert.ok(result.remaining_findings <= result.original_findings);
 });
 
+test("filesystem server with / path is replaced with ./workspace", () => {
+  const config = {
+    mcpServers: {
+      files: {
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-filesystem", "/"]
+      }
+    }
+  };
+  const result = fixConfig(config);
+  assert.ok(result.changes.some((c) => c.action === "constrain_filesystem"));
+  const args = result.fixed_config.mcpServers.files.args;
+  assert.ok(!args.includes("/"), "root path should be replaced");
+  assert.ok(args.includes("./workspace"), "should contain ./workspace");
+});
+
+test("filesystem server with /home path is replaced with ./workspace", () => {
+  const config = {
+    mcpServers: {
+      files: {
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-filesystem", "/home"]
+      }
+    }
+  };
+  const result = fixConfig(config);
+  assert.ok(result.changes.some((c) => c.action === "constrain_filesystem"));
+  const args = result.fixed_config.mcpServers.files.args;
+  assert.ok(!args.includes("/home"), "/home should be replaced");
+  assert.ok(args.includes("./workspace"), "should contain ./workspace");
+});
+
+test("filesystem server with ~/ path is replaced with ./workspace", () => {
+  const config = {
+    mcpServers: {
+      files: {
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-filesystem", "~"]
+      }
+    }
+  };
+  const result = fixConfig(config);
+  assert.ok(result.changes.some((c) => c.action === "constrain_filesystem"));
+  const args = result.fixed_config.mcpServers.files.args;
+  assert.ok(!args.includes("~"), "~ should be replaced");
+  assert.ok(args.includes("./workspace"), "should contain ./workspace");
+});
+
 test("fixConfig throws on null input", () => {
   assert.throws(() => fixConfig(null), /Missing MCP config/);
 });

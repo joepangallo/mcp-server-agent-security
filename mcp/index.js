@@ -8,19 +8,26 @@ const { hardenPrompt } = require("../lib/prompt-hardener");
 const { generatePolicy } = require("../lib/policy-generator");
 const { isPlainObject, importFirst } = require("../lib/utils");
 const {
-  ACTIVE_SERVER_PROBING_DISABLED_MESSAGE,
+  MCP_COMMAND_ALLOWLIST,
+  isAdminModeEnabled
+} = require("../lib/runtime-policy");
+const {
   executeAuditJob,
-  generateCombinedReport,
-  isAdminModeEnabled,
-  testOnly: {
-    isSafeNpmPackageSpec,
-    sanitizeConfigLaunchTargets,
-    validateServerLaunchSpec
-  }
+  generateCombinedReport
 } = require("../index");
 const {
-  MCP_COMMAND_ALLOWLIST
-} = require("../lib/runtime-policy");
+  ACTIVE_SERVER_PROBING_DISABLED_MESSAGE,
+  MAX_JSON_INPUT_CHARS,
+  MAX_SYSTEM_PROMPT_CHARS,
+  MAX_TOOLS,
+  MAX_TOOL_LENGTH
+} = require("../lib/constants");
+const {
+  isSafeNpmPackageSpec,
+  sanitizeConfigLaunchTargets,
+  sanitizeToolsInput,
+  validateServerLaunchSpec
+} = require("../lib/validation");
 
 const toolDefinitions = [
   {
@@ -216,7 +223,7 @@ async function loadServerSdk() {
   };
 }
 
-/* ── MCP rate limiting (in-process) ── */
+/* -- MCP rate limiting (in-process) -- */
 let mcpRequestCount = 0;
 let mcpWindowStart = Date.now();
 let mcpActiveAudits = 0;
@@ -233,12 +240,7 @@ function checkMcpRateLimit() {
   mcpRequestCount++;
   return mcpRequestCount <= MCP_MAX_REQUESTS_PER_MINUTE;
 }
-/* ── end rate limiting ── */
-
-const MAX_JSON_INPUT_CHARS = 1_000_000;
-const MAX_SYSTEM_PROMPT_CHARS = 200_000;
-const MAX_TOOLS = 64;
-const MAX_TOOL_LENGTH = 256;
+/* -- end rate limiting -- */
 
 function validateStringInput(value, fieldName, maxLength) {
   if (typeof value !== "string") {
