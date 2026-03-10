@@ -8,6 +8,9 @@ const { traceDataFlow } = require("./lib/dataflow-tracer");
 const { scanPackage } = require("./lib/package-scanner");
 const { generateReport } = require("./lib/report-generator");
 const { createFinding } = require("./lib/findings");
+const { fixConfig } = require("./lib/config-fixer");
+const { hardenPrompt } = require("./lib/prompt-hardener");
+const { generatePolicy } = require("./lib/policy-generator");
 
 const PORT = Number.parseInt(process.env.AGENT_SECURITY_PORT || "", 10) || 3091;
 const HOST = process.env.AGENT_SECURITY_HOST || "127.0.0.1";
@@ -1194,6 +1197,94 @@ function createApp() {
     }
 
     res.json(sanitizeAuditResponse(audit));
+  }));
+
+  app.post("/fix/config", asyncRoute(async (req, res) => {
+    const parsedConfig = parseJsonInput("config", req.body.config);
+    if (parsedConfig.error) {
+      res.status(400).json({ error: parsedConfig.error });
+      return;
+    }
+
+    const validatedConfig = validateConfigTopology(parsedConfig.parsed, "config");
+    if (validatedConfig.error) {
+      res.status(400).json({ error: validatedConfig.error });
+      return;
+    }
+
+    const result = await executeManagedAudit(
+      req,
+      res,
+      "fix",
+      "mcp-config",
+      async () => fixConfig(validatedConfig.parsed),
+      MAX_AUDIT_MS
+    );
+    if (result) {
+      res.json(sanitizeAuditResponse(result));
+    }
+  }));
+
+  app.post("/fix/prompt", asyncRoute(async (req, res) => {
+    if (typeof req.body.system_prompt !== "string" || !req.body.system_prompt.trim()) {
+      res.status(400).json({ error: "system_prompt must be a non-empty string." });
+      return;
+    }
+
+    if (req.body.system_prompt.length > MAX_SYSTEM_PROMPT_CHARS) {
+      res.status(400).json({ error: `system_prompt exceeds ${MAX_SYSTEM_PROMPT_CHARS} characters.` });
+      return;
+    }
+
+    const tools = Array.isArray(req.body.tools)
+      ? req.body.tools.slice(0, MAX_TOOLS).map((value) => String(value).slice(0, MAX_TOOL_LENGTH))
+      : [];
+
+    const result = await executeManagedAudit(
+      req,
+      res,
+      "harden",
+      "prompt-surface",
+      async () => hardenPrompt(req.body.system_prompt, tools),
+      MAX_AUDIT_MS
+    );
+    if (result) {
+      res.json(sanitizeAuditResponse(result));
+    }
+  }));
+
+  app.post("/fix/policy", asyncRoute(async (req, res) => {
+    const parsedConfig = parseJsonInput("mcp_config", req.body.mcp_config);
+    if (parsedConfig.error) {
+      res.status(400).json({ error: parsedConfig.error });
+      return;
+    }
+
+    const validatedConfig = validateConfigTopology(parsedConfig.parsed, "mcp_config");
+    if (validatedConfig.error) {
+      res.status(400).json({ error: validatedConfig.error });
+      return;
+    }
+
+    const opts = {};
+    if (Array.isArray(req.body.allowed_destinations)) {
+      opts.allowed_destinations = req.body.allowed_destinations.slice(0, 50).map((d) => String(d).slice(0, 256));
+    }
+    if (Array.isArray(req.body.allowed_paths)) {
+      opts.allowed_paths = req.body.allowed_paths.slice(0, 50).map((p) => String(p).slice(0, 1024));
+    }
+
+    const result = await executeManagedAudit(
+      req,
+      res,
+      "policy",
+      "mcp-pipeline",
+      async () => generatePolicy(parsedConfig.parsed, opts),
+      MAX_AUDIT_MS
+    );
+    if (result) {
+      res.json(sanitizeAuditResponse(result));
+    }
   }));
 
   return app;

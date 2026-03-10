@@ -3,6 +3,9 @@ const { probeServer } = require("../lib/server-prober");
 const { testPromptInjection } = require("../lib/injection-tester");
 const { traceDataFlow } = require("../lib/dataflow-tracer");
 const { scanPackage } = require("../lib/package-scanner");
+const { fixConfig } = require("../lib/config-fixer");
+const { hardenPrompt } = require("../lib/prompt-hardener");
+const { generatePolicy } = require("../lib/policy-generator");
 const {
   ACTIVE_SERVER_PROBING_DISABLED_MESSAGE,
   executeAuditJob,
@@ -121,6 +124,69 @@ const toolDefinitions = [
       },
       required: ["audit_ids"]
     }
+  },
+  {
+    name: "fix_mcp_config",
+    description: "Auto-remediate security issues in an MCP config: remove unsafe flags, strip shell wrappers, upgrade transport to TLS, redact inline secrets, add auth placeholders, and constrain filesystem scope. Returns the hardened config and a changelog.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        config: {
+          type: "string",
+          description: "Raw MCP config JSON to fix."
+        }
+      },
+      required: ["config"]
+    }
+  },
+  {
+    name: "harden_system_prompt",
+    description: "Analyze a system prompt for injection vulnerabilities and return a hardened version with security guardrails appended. Shows before/after injection resistance scores.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        system_prompt: {
+          type: "string",
+          description: "The system prompt to harden."
+        },
+        tools: {
+          type: "array",
+          items: {
+            type: "string"
+          },
+          description: "Tool names available to the agent (used for risk assessment)."
+        }
+      },
+      required: ["system_prompt"]
+    }
+  },
+  {
+    name: "generate_policy",
+    description: "Generate a JSON security policy from an MCP config that can be enforced by a proxy or middleware. Includes capability-based rules for shell approval, network egress allowlists, file write constraints, database read-only defaults, and rate limits.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        mcp_config: {
+          type: "string",
+          description: "Raw MCP config JSON to generate policy from."
+        },
+        allowed_destinations: {
+          type: "array",
+          items: {
+            type: "string"
+          },
+          description: "Optional list of allowed outbound domains (e.g. ['*.github.com'])."
+        },
+        allowed_paths: {
+          type: "array",
+          items: {
+            type: "string"
+          },
+          description: "Optional list of allowed file write paths (e.g. ['./output/'])."
+        }
+      },
+      required: ["mcp_config"]
+    }
   }
 ];
 
@@ -225,6 +291,25 @@ async function runAuditTool(toolName, args) {
       return executeAuditJob("package", safeArgs.package_name.trim(), async () => scanPackage(safeArgs.package_name.trim()));
     case "generate_report":
       return generateCombinedReport(Array.isArray(safeArgs.audit_ids) ? safeArgs.audit_ids.map((value) => String(value)) : []);
+    case "fix_mcp_config":
+      return executeAuditJob("fix", "mcp-config", async () => fixConfig(safeArgs.config));
+    case "harden_system_prompt":
+      return executeAuditJob("harden", "prompt-surface", async () => hardenPrompt(
+        safeArgs.system_prompt,
+        Array.isArray(safeArgs.tools) ? safeArgs.tools.map((value) => String(value)) : []
+      ));
+    case "generate_policy": {
+      let parsedPolicyConfig;
+      try {
+        parsedPolicyConfig = safeArgs.mcp_config;
+      } catch (error) {
+        return { error: error.message };
+      }
+      return executeAuditJob("policy", "mcp-pipeline", async () => generatePolicy(parsedPolicyConfig, {
+        allowed_destinations: Array.isArray(safeArgs.allowed_destinations) ? safeArgs.allowed_destinations : undefined,
+        allowed_paths: Array.isArray(safeArgs.allowed_paths) ? safeArgs.allowed_paths : undefined
+      }));
+    }
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }

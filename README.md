@@ -60,6 +60,17 @@ node mcp/index.js
 | `audit_agent_dataflow` | Traces PII and secrets through an agent's tool pipeline. Identifies exfiltration paths. | `mcp_config` (string), `test_pii` (string) |
 | `scan_mcp_package` | Downloads and inspects an npm package for vulnerabilities, dangerous patterns, and permissions. | `package_name` (string) |
 | `generate_report` | Combines multiple stored audit results into a single executive report with composite scoring. | `audit_ids` (string[]) |
+| `fix_mcp_config` | Auto-remediate config issues: removes unsafe flags, unwraps shell wrappers, upgrades to TLS, redacts inline secrets, adds auth placeholders. Returns the hardened config. | `config` (string) |
+| `harden_system_prompt` | Appends injection-resistant guardrails to a system prompt. Shows before/after resistance scores. | `system_prompt` (string), `tools` (string[]) |
+| `generate_policy` | Generates an enforceable JSON security policy with capability-based rules for shell approval, network allowlists, file path constraints, and rate limits. | `mcp_config` (string), `allowed_destinations` (string[]), `allowed_paths` (string[]) |
+
+## HTTP API -- Remediation Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/fix/config` | POST | Auto-fix MCP config security issues |
+| `/fix/prompt` | POST | Harden a system prompt with guardrails |
+| `/fix/policy` | POST | Generate enforceable security policy from config |
 
 ## Security Defaults
 
