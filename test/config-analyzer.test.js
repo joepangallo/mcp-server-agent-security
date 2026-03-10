@@ -68,6 +68,7 @@ test("passes clean config with no findings", () => {
     (f) => f.cwe === "CWE-78" || f.cwe === "CWE-201"
   );
   assert.equal(shellOrSecret.length, 0, "clean config should have no shell injection or secret leakage findings");
+  assert.equal(result.findings.length, 0, "clean config should have zero findings total");
 });
 
 test("detects wildcard/unsafe args patterns", () => {

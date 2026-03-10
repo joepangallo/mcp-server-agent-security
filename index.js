@@ -11,51 +11,26 @@ const { createFinding } = require("./lib/findings");
 const { fixConfig } = require("./lib/config-fixer");
 const { hardenPrompt } = require("./lib/prompt-hardener");
 const { generatePolicy } = require("./lib/policy-generator");
+const {
+  MCP_COMMAND_ALLOWLIST,
+  DISALLOWED_RUNTIME_ENV_KEYS,
+  DANGEROUS_ENV_PATTERNS,
+  findDisallowedRuntimeEnvKeys,
+  isAdminModeEnabled,
+  isDangerousEnvKey,
+  normalizeEnvKey
+} = require("./lib/runtime-policy");
 
 const PORT = Number.parseInt(process.env.AGENT_SECURITY_PORT || "", 10) || 3091;
 const HOST = process.env.AGENT_SECURITY_HOST || "127.0.0.1";
 const API_KEY = process.env.AGENT_SECURITY_API_KEY || "";
 const ACTIVE_SERVER_PROBING_DISABLED_MESSAGE = "Active server probing is disabled unless AGENT_SECURITY_ADMIN_MODE=1.";
 
-const COMMAND_ALLOWLIST = new Set(["node", "python3", "python", "npx", "uvx", "deno", "bun"]);
+const COMMAND_ALLOWLIST = MCP_COMMAND_ALLOWLIST;
 const NPX_ALLOWED_FLAGS = new Set(["-y", "--yes"]);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const RESERVED_OBJECT_KEYS = new Set(["__proto__", "constructor", "prototype"]);
-const RESERVED_RUNTIME_ENV_KEYS = new Set([
-  "PATH",
-  "PATHEXT",
-  "HOME",
-  "USERPROFILE",
-  "XDG_CONFIG_HOME",
-  "XDG_DATA_HOME",
-  "XDG_CACHE_HOME",
-  "NODE_OPTIONS",
-  "NODE_PATH",
-  "PYTHONHOME",
-  "PYTHONPATH",
-  "PYTHONSTARTUP",
-  "RUBYOPT",
-  "RUBYLIB",
-  "PERL5OPT",
-  "PERL5LIB",
-  "JAVA_TOOL_OPTIONS",
-  "_JAVA_OPTIONS",
-  "JDK_JAVA_OPTIONS",
-  "CLASSPATH",
-  "LD_PRELOAD",
-  "LD_LIBRARY_PATH",
-  "DYLD_INSERT_LIBRARIES",
-  "DYLD_LIBRARY_PATH",
-  "DYLD_FRAMEWORK_PATH",
-  "BUNDLE_GEMFILE",
-  "BUNDLE_PATH",
-  "GEM_HOME",
-  "GEM_PATH",
-  "NPM_CONFIG_PREFIX",
-  "NPM_CONFIG_GLOBALCONFIG",
-  "NPM_CONFIG_USERCONFIG",
-  "NPM_CONFIG_CACHE"
-]);
+const RESERVED_RUNTIME_ENV_KEYS = DISALLOWED_RUNTIME_ENV_KEYS;
 const INTERNAL_AUDIT_ACCESS_FIELD = "_access";
 
 const RATE_WINDOW_MS = Number.parseInt(process.env.AGENT_SECURITY_RATE_WINDOW_MS || "", 10) || 60_000;
@@ -82,24 +57,6 @@ const requestWindows = new Map();
 let activeAuditCount = 0;
 const activeAuditCountsByCaller = new Map();
 
-const DANGEROUS_ENV_PATTERNS = [
-  /^NODE_OPTIONS$/i,
-  /^NODE_PATH$/i,
-  /^PYTHON(?:PATH|HOME|STARTUP)$/i,
-  /^RUBYOPT$/i,
-  /^BUNDLE_.+$/i,
-  /^GEM_.+$/i,
-  /^LD_(?:PRELOAD|LIBRARY_PATH)$/i,
-  /^DYLD_.+$/i,
-  /^BASH_ENV$/i,
-  /^ENV$/i,
-  /^SHELLOPTS$/i,
-  /^PS4$/i,
-  /^(?:npm_config_|NPM_CONFIG_)/,
-  /^(?:HTTP|HTTPS|ALL|NO)_PROXY$/i,
-  /^SSLKEYLOGFILE$/i
-];
-
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -114,10 +71,6 @@ function getRemoteAddress(req) {
 
 function isLoopbackAddress(address) {
   return !address || address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
-}
-
-function isAdminModeEnabled() {
-  return process.env.AGENT_SECURITY_ADMIN_MODE === "1";
 }
 
 function hasForwardingHeaders(req) {
@@ -284,24 +237,6 @@ function sanitizeExtraFields(result) {
   }
 
   return scrub(result || {}, 0);
-}
-
-function isDangerousEnvKey(key) {
-  return DANGEROUS_ENV_PATTERNS.some((pattern) => pattern.test(key));
-}
-
-function normalizeEnvKey(key) {
-  return typeof key === "string" ? key.trim().toUpperCase() : "";
-}
-
-function findDisallowedRuntimeEnvKeys(envInput) {
-  if (!isPlainObject(envInput)) {
-    return [];
-  }
-
-  return Object.keys(envInput)
-    .filter((key) => RESERVED_RUNTIME_ENV_KEYS.has(normalizeEnvKey(key)) || isDangerousEnvKey(key))
-    .sort((left, right) => normalizeEnvKey(left).localeCompare(normalizeEnvKey(right)) || left.localeCompare(right));
 }
 
 function sanitizeEnvInput(envInput) {
@@ -1236,9 +1171,11 @@ function createApp() {
       return;
     }
 
-    const tools = Array.isArray(req.body.tools)
-      ? req.body.tools.slice(0, MAX_TOOLS).map((value) => String(value).slice(0, MAX_TOOL_LENGTH))
-      : [];
+    const tools = sanitizeToolsInput(req.body.tools);
+    if (tools === null) {
+      res.status(400).json({ error: `tools must be an array of at most ${MAX_TOOLS} non-empty strings.` });
+      return;
+    }
 
     const result = await executeManagedAudit(
       req,
@@ -1266,6 +1203,12 @@ function createApp() {
       return;
     }
 
+    const normalizedConfig = sanitizeConfigLaunchTargets(validatedConfig.parsed);
+    if (normalizedConfig.error) {
+      res.status(400).json({ error: normalizedConfig.error });
+      return;
+    }
+
     const opts = {};
     if (Array.isArray(req.body.allowed_destinations)) {
       opts.allowed_destinations = req.body.allowed_destinations.slice(0, 50).map((d) => String(d).slice(0, 256));
@@ -1279,7 +1222,7 @@ function createApp() {
       res,
       "policy",
       "mcp-pipeline",
-      async () => generatePolicy(parsedConfig.parsed, opts),
+      async () => generatePolicy(normalizedConfig.parsed, opts),
       MAX_AUDIT_MS
     );
     if (result) {

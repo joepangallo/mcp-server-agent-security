@@ -229,16 +229,51 @@ async function loadServerSdk() {
   };
 }
 
+const MAX_JSON_INPUT_CHARS = 1_000_000;
+const MAX_SYSTEM_PROMPT_CHARS = 200_000;
+const MAX_TOOLS = 64;
+const MAX_TOOL_LENGTH = 256;
+
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function validateStringInput(value, fieldName, maxLength) {
+  if (typeof value !== "string") {
+    return `${fieldName} must be a string.`;
+  }
+  if (value.length > maxLength) {
+    return `${fieldName} exceeds the maximum allowed length.`;
+  }
+  return null;
+}
+
+function validateToolsArray(tools) {
+  if (tools === undefined) {
+    return null;
+  }
+  if (!Array.isArray(tools) || tools.length > MAX_TOOLS) {
+    return `tools must be an array of at most ${MAX_TOOLS} strings.`;
+  }
+  for (const tool of tools) {
+    if (typeof tool !== "string" || tool.length > MAX_TOOL_LENGTH) {
+      return `Each tool must be a string of at most ${MAX_TOOL_LENGTH} characters.`;
+    }
+  }
+  return null;
 }
 
 async function runAuditTool(toolName, args) {
   const safeArgs = isPlainObject(args) ? args : {};
 
   switch (toolName) {
-    case "audit_mcp_config":
+    case "audit_mcp_config": {
+      const configErr = validateStringInput(safeArgs.config, "config", MAX_JSON_INPUT_CHARS);
+      if (configErr) {
+        return { error: configErr };
+      }
       return executeAuditJob("config", "mcp-config", async () => analyzeConfig(safeArgs.config));
+    }
     case "audit_mcp_server": {
       if (!isAdminModeEnabled()) {
         return { error: ACTIVE_SERVER_PROBING_DISABLED_MESSAGE };
@@ -254,12 +289,25 @@ async function runAuditTool(toolName, args) {
         env: validatedLaunch.env
       }));
     }
-    case "audit_prompt_injection":
+    case "audit_prompt_injection": {
+      const promptErr = validateStringInput(safeArgs.system_prompt, "system_prompt", MAX_SYSTEM_PROMPT_CHARS);
+      if (promptErr) {
+        return { error: promptErr };
+      }
+      const toolsErr = validateToolsArray(safeArgs.tools);
+      if (toolsErr) {
+        return { error: toolsErr };
+      }
       return executeAuditJob("injection", "prompt-surface", async () => testPromptInjection(
         safeArgs.system_prompt,
         Array.isArray(safeArgs.tools) ? safeArgs.tools.map((value) => String(value)) : []
       ));
+    }
     case "audit_agent_dataflow": {
+      const dfConfigErr = validateStringInput(safeArgs.mcp_config, "mcp_config", MAX_JSON_INPUT_CHARS);
+      if (dfConfigErr) {
+        return { error: dfConfigErr };
+      }
       let parsedConfig;
       try {
         parsedConfig = parseConfig(safeArgs.mcp_config);
@@ -284,24 +332,47 @@ async function runAuditTool(toolName, args) {
         commandAllowlist: MCP_COMMAND_ALLOWLIST
       }));
     }
-    case "scan_mcp_package":
-      if (typeof safeArgs.package_name !== "string" || !isSafeNpmPackageSpec(safeArgs.package_name.trim())) {
+    case "scan_mcp_package": {
+      const pkgErr = validateStringInput(safeArgs.package_name, "package_name", MAX_JSON_INPUT_CHARS);
+      if (pkgErr) {
+        return { error: pkgErr };
+      }
+      if (!isSafeNpmPackageSpec(safeArgs.package_name.trim())) {
         return { error: "package_name must be a valid npm registry package identifier." };
       }
       return executeAuditJob("package", safeArgs.package_name.trim(), async () => scanPackage(safeArgs.package_name.trim()));
+    }
     case "generate_report":
       return generateCombinedReport(Array.isArray(safeArgs.audit_ids) ? safeArgs.audit_ids.map((value) => String(value)) : []);
-    case "fix_mcp_config":
+    case "fix_mcp_config": {
+      const fixConfigErr = validateStringInput(safeArgs.config, "config", MAX_JSON_INPUT_CHARS);
+      if (fixConfigErr) {
+        return { error: fixConfigErr };
+      }
       return executeAuditJob("fix", "mcp-config", async () => fixConfig(safeArgs.config));
-    case "harden_system_prompt":
+    }
+    case "harden_system_prompt": {
+      const hardenPromptErr = validateStringInput(safeArgs.system_prompt, "system_prompt", MAX_SYSTEM_PROMPT_CHARS);
+      if (hardenPromptErr) {
+        return { error: hardenPromptErr };
+      }
+      const hardenToolsErr = validateToolsArray(safeArgs.tools);
+      if (hardenToolsErr) {
+        return { error: hardenToolsErr };
+      }
       return executeAuditJob("harden", "prompt-surface", async () => hardenPrompt(
         safeArgs.system_prompt,
         Array.isArray(safeArgs.tools) ? safeArgs.tools.map((value) => String(value)) : []
       ));
+    }
     case "generate_policy": {
+      const policyConfigErr = validateStringInput(safeArgs.mcp_config, "mcp_config", MAX_JSON_INPUT_CHARS);
+      if (policyConfigErr) {
+        return { error: policyConfigErr };
+      }
       let parsedPolicyConfig;
       try {
-        parsedPolicyConfig = safeArgs.mcp_config;
+        parsedPolicyConfig = parseConfig(safeArgs.mcp_config);
       } catch (error) {
         return { error: error.message };
       }
@@ -334,7 +405,7 @@ async function main() {
   const server = new Server(
     {
       name: "mcp-server-agent-security",
-      version: "1.0.0"
+      version: "1.1.0"
     },
     {
       capabilities: {

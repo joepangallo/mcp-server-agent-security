@@ -18,8 +18,8 @@ test("well-hardened system prompt scores high", () => {
 
   const result = testPromptInjection(hardened, []);
   assert.ok(
-    result.injection_resistance_score >= 70,
-    `expected score >= 70 but got ${result.injection_resistance_score}`
+    result.injection_resistance_score >= 90,
+    `expected score >= 90 but got ${result.injection_resistance_score}`
   );
 });
 
@@ -38,11 +38,11 @@ test("partial coverage scores in middle range", () => {
 
   const result = testPromptInjection(partial, []);
   assert.ok(
-    result.injection_resistance_score > 0,
-    `expected score > 0 but got ${result.injection_resistance_score}`
+    result.injection_resistance_score >= 5,
+    `expected score >= 5 but got ${result.injection_resistance_score}`
   );
   assert.ok(
-    result.injection_resistance_score < 70,
-    `expected score < 70 but got ${result.injection_resistance_score}`
+    result.injection_resistance_score <= 30,
+    `expected score <= 30 but got ${result.injection_resistance_score}`
   );
 });

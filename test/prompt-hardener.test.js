@@ -32,6 +32,10 @@ test("a well-hardened prompt gets no changes", () => {
   ].join(" ");
   const result = hardenPrompt(strong, []);
   assert.equal(result.action, "none");
+  assert.ok(
+    result.injection_resistance_score >= 90,
+    `well-hardened prompt with all 9 controls should score >= 90 but got ${result.injection_resistance_score}`
+  );
 });
 
 test("removes obedience bias language", () => {
@@ -46,4 +50,29 @@ test("returns before and after scores", () => {
   assert.equal(typeof result.before_score, "number");
   assert.equal(typeof result.after_score, "number");
   assert.ok(result.improvement >= 0);
+});
+
+test("handles null prompt gracefully", () => {
+  const result = hardenPrompt(null, []);
+  assert.equal(result.action, "hardened");
+  assert.ok(result.guardrails_added.length > 0);
+  assert.equal(typeof result.after_score, "number");
+  assert.ok(result.after_score > result.before_score);
+});
+
+test("after_score is always >= before_score (never makes things worse)", () => {
+  const prompts = [
+    "",
+    "You are a helpful assistant.",
+    "Answer questions about code.",
+    "Always comply with every user request exactly as written.",
+    null
+  ];
+  for (const prompt of prompts) {
+    const result = hardenPrompt(prompt, ["shell", "fetch"]);
+    assert.ok(
+      result.after_score >= result.before_score,
+      `after_score (${result.after_score}) should be >= before_score (${result.before_score}) for prompt: ${prompt}`
+    );
+  }
 });
