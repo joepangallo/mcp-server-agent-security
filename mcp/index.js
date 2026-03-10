@@ -6,6 +6,7 @@ const { scanPackage } = require("../lib/package-scanner");
 const { fixConfig } = require("../lib/config-fixer");
 const { hardenPrompt } = require("../lib/prompt-hardener");
 const { generatePolicy } = require("../lib/policy-generator");
+const { isPlainObject, importFirst } = require("../lib/utils");
 const {
   ACTIVE_SERVER_PROBING_DISABLED_MESSAGE,
   executeAuditJob,
@@ -190,20 +191,6 @@ const toolDefinitions = [
   }
 ];
 
-async function importFirst(specifiers) {
-  let lastError;
-
-  for (const specifier of specifiers) {
-    try {
-      return await import(specifier);
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  throw lastError;
-}
-
 async function loadServerSdk() {
   const serverModule = await importFirst([
     "@modelcontextprotocol/sdk/server/index.js",
@@ -229,14 +216,29 @@ async function loadServerSdk() {
   };
 }
 
+/* ── MCP rate limiting (in-process) ── */
+let mcpRequestCount = 0;
+let mcpWindowStart = Date.now();
+let mcpActiveAudits = 0;
+const MCP_MAX_REQUESTS_PER_MINUTE = 30;
+const MCP_MAX_CONCURRENT_AUDITS = 2;
+const MCP_WINDOW_MS = 60_000;
+
+function checkMcpRateLimit() {
+  const now = Date.now();
+  if (now - mcpWindowStart > MCP_WINDOW_MS) {
+    mcpRequestCount = 0;
+    mcpWindowStart = now;
+  }
+  mcpRequestCount++;
+  return mcpRequestCount <= MCP_MAX_REQUESTS_PER_MINUTE;
+}
+/* ── end rate limiting ── */
+
 const MAX_JSON_INPUT_CHARS = 1_000_000;
 const MAX_SYSTEM_PROMPT_CHARS = 200_000;
 const MAX_TOOLS = 64;
 const MAX_TOOL_LENGTH = 256;
-
-function isPlainObject(value) {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
 
 function validateStringInput(value, fieldName, maxLength) {
   if (typeof value !== "string") {
@@ -263,7 +265,23 @@ function validateToolsArray(tools) {
   return null;
 }
 
+async function mcpExecuteAuditJob(...args) {
+  if (mcpActiveAudits >= MCP_MAX_CONCURRENT_AUDITS) {
+    return { error: "Too many concurrent audits." };
+  }
+  mcpActiveAudits++;
+  try {
+    return await executeAuditJob(...args);
+  } finally {
+    mcpActiveAudits--;
+  }
+}
+
 async function runAuditTool(toolName, args) {
+  if (!checkMcpRateLimit()) {
+    return { error: "Rate limit exceeded. Try again later." };
+  }
+
   const safeArgs = isPlainObject(args) ? args : {};
 
   switch (toolName) {
@@ -272,7 +290,7 @@ async function runAuditTool(toolName, args) {
       if (configErr) {
         return { error: configErr };
       }
-      return executeAuditJob("config", "mcp-config", async () => analyzeConfig(safeArgs.config));
+      return mcpExecuteAuditJob("config", "mcp-config", async () => analyzeConfig(safeArgs.config));
     }
     case "audit_mcp_server": {
       if (!isAdminModeEnabled()) {
@@ -283,7 +301,7 @@ async function runAuditTool(toolName, args) {
         return { error: validatedLaunch.error };
       }
       const target = [validatedLaunch.command, ...validatedLaunch.args].join(" ").trim();
-      return executeAuditJob("server", target, async () => probeServer({
+      return mcpExecuteAuditJob("server", target, async () => probeServer({
         command: validatedLaunch.command,
         args: validatedLaunch.args,
         env: validatedLaunch.env
@@ -298,7 +316,7 @@ async function runAuditTool(toolName, args) {
       if (toolsErr) {
         return { error: toolsErr };
       }
-      return executeAuditJob("injection", "prompt-surface", async () => testPromptInjection(
+      return mcpExecuteAuditJob("injection", "prompt-surface", async () => testPromptInjection(
         safeArgs.system_prompt,
         Array.isArray(safeArgs.tools) ? safeArgs.tools.map((value) => String(value)) : []
       ));
@@ -326,7 +344,7 @@ async function runAuditTool(toolName, args) {
         return { error: sanitizedConfig.error };
       }
 
-      return executeAuditJob("dataflow", "mcp-pipeline", async () => traceDataFlow(sanitizedConfig.parsed, safeArgs.test_pii, {
+      return mcpExecuteAuditJob("dataflow", "mcp-pipeline", async () => traceDataFlow(sanitizedConfig.parsed, safeArgs.test_pii, {
         adminModeEnabled: isAdminModeEnabled(),
         allowLiveEnumeration: isAdminModeEnabled(),
         commandAllowlist: MCP_COMMAND_ALLOWLIST
@@ -340,16 +358,21 @@ async function runAuditTool(toolName, args) {
       if (!isSafeNpmPackageSpec(safeArgs.package_name.trim())) {
         return { error: "package_name must be a valid npm registry package identifier." };
       }
-      return executeAuditJob("package", safeArgs.package_name.trim(), async () => scanPackage(safeArgs.package_name.trim()));
+      return mcpExecuteAuditJob("package", safeArgs.package_name.trim(), async () => scanPackage(safeArgs.package_name.trim()));
     }
-    case "generate_report":
-      return generateCombinedReport(Array.isArray(safeArgs.audit_ids) ? safeArgs.audit_ids.map((value) => String(value)) : []);
+    case "generate_report": {
+      const ids = Array.isArray(safeArgs.audit_ids) ? safeArgs.audit_ids.map((value) => String(value)) : [];
+      if (ids.length > 25) {
+        return { error: "audit_ids must contain at most 25 entries." };
+      }
+      return generateCombinedReport(ids);
+    }
     case "fix_mcp_config": {
       const fixConfigErr = validateStringInput(safeArgs.config, "config", MAX_JSON_INPUT_CHARS);
       if (fixConfigErr) {
         return { error: fixConfigErr };
       }
-      return executeAuditJob("fix", "mcp-config", async () => fixConfig(safeArgs.config));
+      return mcpExecuteAuditJob("fix", "mcp-config", async () => fixConfig(safeArgs.config));
     }
     case "harden_system_prompt": {
       const hardenPromptErr = validateStringInput(safeArgs.system_prompt, "system_prompt", MAX_SYSTEM_PROMPT_CHARS);
@@ -360,7 +383,7 @@ async function runAuditTool(toolName, args) {
       if (hardenToolsErr) {
         return { error: hardenToolsErr };
       }
-      return executeAuditJob("harden", "prompt-surface", async () => hardenPrompt(
+      return mcpExecuteAuditJob("harden", "prompt-surface", async () => hardenPrompt(
         safeArgs.system_prompt,
         Array.isArray(safeArgs.tools) ? safeArgs.tools.map((value) => String(value)) : []
       ));
@@ -376,7 +399,7 @@ async function runAuditTool(toolName, args) {
       } catch (error) {
         return { error: error.message };
       }
-      return executeAuditJob("policy", "mcp-pipeline", async () => generatePolicy(parsedPolicyConfig, {
+      return mcpExecuteAuditJob("policy", "mcp-pipeline", async () => generatePolicy(parsedPolicyConfig, {
         allowed_destinations: Array.isArray(safeArgs.allowed_destinations) ? safeArgs.allowed_destinations : undefined,
         allowed_paths: Array.isArray(safeArgs.allowed_paths) ? safeArgs.allowed_paths : undefined
       }));
@@ -384,10 +407,6 @@ async function runAuditTool(toolName, args) {
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
-}
-
-async function dispatchTool(toolName, args) {
-  return runAuditTool(toolName, args);
 }
 
 async function main() {
@@ -422,7 +441,7 @@ async function main() {
     try {
       const toolName = request && request.params ? request.params.name : "";
       const args = request && request.params && request.params.arguments ? request.params.arguments : {};
-      const result = await dispatchTool(toolName, args);
+      const result = await runAuditTool(toolName, args);
       const isToolError = Boolean(result && typeof result === "object" && typeof result.error === "string" && result.error);
       return {
         ...(isToolError ? { isError: true } : {}),
@@ -461,5 +480,16 @@ if (require.main === module) {
 
 module.exports = {
   main,
-  runAuditTool
+  runAuditTool,
+  _testOnly: {
+    resetRateLimits() {
+      mcpRequestCount = 0;
+      mcpWindowStart = Date.now();
+      mcpActiveAudits = 0;
+    },
+    getMcpActiveAudits() { return mcpActiveAudits; },
+    setMcpActiveAudits(n) { mcpActiveAudits = n; },
+    MCP_MAX_REQUESTS_PER_MINUTE,
+    MCP_MAX_CONCURRENT_AUDITS
+  }
 };

@@ -22,6 +22,7 @@ function printUsage() {
       "  agent-security report <id>                 Retrieve an audit report by ID",
       "",
       "Flags:",
+      "  --mcp            Start the MCP stdio server (for use with MCP clients)",
       "  --help, -h       Show this help message",
       "  --version, -v    Show version number",
       "  --json           Output raw JSON instead of formatted tables"
@@ -331,5 +332,9 @@ async function main() {
 }
 
 if (require.main === module) {
-  main();
+  if (process.argv.includes("--mcp")) {
+    require("./mcp/index.js");
+  } else {
+    main();
+  }
 }

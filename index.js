@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const express = require("express");
 const store = require("./lib/store");
+const { isPlainObject, withTimeout } = require("./lib/utils");
 const { analyzeConfig, parseConfig, getServerEntries } = require("./lib/config-analyzer");
 const { probeServer } = require("./lib/server-prober");
 const { testPromptInjection } = require("./lib/injection-tester");
@@ -56,10 +57,6 @@ const MAX_SERVERS_PER_CONFIG = 25;
 const requestWindows = new Map();
 let activeAuditCount = 0;
 const activeAuditCountsByCaller = new Map();
-
-function isPlainObject(value) {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
 
 function isLoopbackHost(host) {
   return host === "127.0.0.1" || host === "::1" || host === "localhost";
@@ -429,11 +426,33 @@ function validateDenoArgs(args) {
     return "deno audits must use `deno run <local-script>`.";
   }
 
+  const DENO_DANGEROUS_FLAGS = [
+    "--allow-all",
+    "--allow-sys",
+    "--allow-ffi"
+  ];
+  const DENO_SCOPED_ONLY_FLAGS = [
+    "--allow-run",
+    "--allow-net",
+    "--allow-env",
+    "--allow-read",
+    "--allow-write"
+  ];
+
   let entryIndex = 1;
   while (entryIndex < args.length && String(args[entryIndex]).trim().startsWith("-")) {
-    const flag = String(args[entryIndex]).trim().split("=")[0];
+    const rawFlag = String(args[entryIndex]).trim();
+    const flag = rawFlag.split("=")[0];
     if (/^--?(?:eval|repl)$/i.test(flag)) {
       return "deno eval/repl modes are not allowed.";
+    }
+    if (DENO_DANGEROUS_FLAGS.some((blocked) => flag.toLowerCase() === blocked)) {
+      return `deno flag "${flag}" is not allowed.`;
+    }
+    if (DENO_SCOPED_ONLY_FLAGS.some((scoped) => flag.toLowerCase() === scoped)) {
+      if (!rawFlag.includes("=")) {
+        return `deno flag "${flag}" requires a scope (e.g., ${flag}=<value>).`;
+      }
     }
     entryIndex += 1;
   }
@@ -752,23 +771,6 @@ function requireTrustedCaller(req, res, next) {
   }
 
   next();
-}
-
-function withTimeout(promise, timeoutMs, label) {
-  let timer;
-  return Promise.race([
-    promise.finally(() => {
-      if (timer) {
-        clearTimeout(timer);
-      }
-    }),
-    new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`${label} timed out after ${Math.ceil(timeoutMs / 1000)}s`)), timeoutMs);
-      if (typeof timer.unref === "function") {
-        timer.unref();
-      }
-    })
-  ]);
 }
 
 async function executeAuditJob(type, target, runner, options = {}) {

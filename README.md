@@ -44,7 +44,7 @@ node mcp/index.js
   "mcpServers": {
     "agent-security": {
       "command": "npx",
-      "args": ["-y", "mcp-server-agent-security", "mcp/index.js"]
+      "args": ["-y", "mcp-server-agent-security", "--mcp"]
     }
   }
 }
@@ -64,14 +64,6 @@ node mcp/index.js
 | `harden_system_prompt` | Appends injection-resistant guardrails to a system prompt. Shows before/after resistance scores. | `system_prompt` (string), `tools` (string[]) |
 | `generate_policy` | Generates an enforceable JSON security policy with capability-based rules for shell approval, network allowlists, file path constraints, and rate limits. | `mcp_config` (string), `allowed_destinations` (string[]), `allowed_paths` (string[]) |
 
-## HTTP API -- Remediation Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/fix/config` | POST | Auto-fix MCP config security issues |
-| `/fix/prompt` | POST | Harden a system prompt with guardrails |
-| `/fix/policy` | POST | Generate enforceable security policy from config |
-
 ## Security Defaults
 
 - Active probing via `audit_mcp_server`, `/audit/server`, and `agent-security scan-server` is disabled unless `AGENT_SECURITY_ADMIN_MODE=1` is set.
@@ -87,15 +79,32 @@ The CLI requires the HTTP server to be running on port 3091.
 # Audit an MCP configuration file
 agent-security scan-config ./claude_desktop_config.json
 
-# Probe a live MCP server
-# Requires AGENT_SECURITY_ADMIN_MODE=1
+# Probe a live MCP server (requires AGENT_SECURITY_ADMIN_MODE=1)
 agent-security scan-server npx -y @modelcontextprotocol/server-filesystem /tmp
 
 # Scan an npm package
 agent-security scan-package @modelcontextprotocol/server-shell
 
+# Test a system prompt for injection vulnerabilities
+agent-security scan-injection ./system-prompt.txt
+
+# Trace data flows through an MCP config
+agent-security scan-dataflow ./claude_desktop_config.json
+
+# Auto-fix security issues in an MCP config
+agent-security fix-config ./claude_desktop_config.json
+
+# Harden a system prompt against injection
+agent-security harden-prompt ./system-prompt.txt
+
+# Generate a security policy from an MCP config
+agent-security generate-policy ./claude_desktop_config.json
+
 # Retrieve a previous audit report
 agent-security report a1b2c3d4-e5f6-7890-abcd-ef1234567890
+
+# Output raw JSON instead of formatted tables
+agent-security scan-config ./claude_desktop_config.json --json
 ```
 
 ## Example Output
@@ -238,14 +247,14 @@ Add the following to your `claude_desktop_config.json`:
 {
   "mcpServers": {
     "agent-security": {
-      "command": "node",
-      "args": ["/path/to/mcp-server-agent-security/mcp/index.js"]
+      "command": "npx",
+      "args": ["-y", "mcp-server-agent-security", "--mcp"]
     }
   }
 }
 ```
 
-Once registered, the six audit tools are available directly in Claude Desktop conversations. Ask Claude to audit your MCP config, test a system prompt for injection resistance, or scan an npm package.
+Once registered, the nine tools are available directly in Claude Desktop conversations. Ask Claude to audit your MCP config, test a system prompt for injection resistance, or scan an npm package.
 
 ## API Endpoints
 
@@ -254,10 +263,13 @@ The HTTP server runs on port 3091 by default.
 | Method | Endpoint | Description | Request Body |
 |--------|----------|-------------|--------------|
 | POST | `/audit/config` | Static analysis of MCP config JSON | `{ "config": "<json string>" }` |
-| POST | `/audit/server` | Active probe of a live MCP server | `{ "command": "node", "args": ["server.js"], "env": {} }` |
+| POST | `/audit/server` | Active probe of a live MCP server (requires admin mode) | `{ "command": "node", "args": ["server.js"], "env": {} }` |
 | POST | `/audit/injection` | Prompt injection resistance test | `{ "system_prompt": "...", "tools": ["shell", "fetch"] }` |
 | POST | `/audit/dataflow` | PII and exfiltration path tracing | `{ "mcp_config": "<json string>", "test_pii": "test@example.com" }` |
 | POST | `/audit/package` | npm package security scan | `{ "package_name": "@scope/package" }` |
+| POST | `/fix/config` | Auto-fix MCP config security issues | `{ "config": "<json string>" }` |
+| POST | `/fix/prompt` | Harden a system prompt with guardrails | `{ "system_prompt": "..." }` |
+| POST | `/fix/policy` | Generate enforceable security policy from config | `{ "mcp_config": "<json string>", "allowed_destinations": [], "allowed_paths": [] }` |
 | GET | `/report/:id` | Retrieve a stored audit report | -- |
 | GET | `/health` | Service health check | -- |
 
