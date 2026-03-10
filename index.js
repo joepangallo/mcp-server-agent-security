@@ -301,7 +301,7 @@ function createApp() {
 
   app.get("/health", rateLimitMiddleware("health", MAX_HEALTH_REQUESTS_PER_WINDOW), asyncRoute(async (req, res) => {
     store.ensureDatabase();
-    res.json({ status: "ok", service: "mcp-server-agent-security", timestamp: new Date().toISOString() });
+    res.status(200).json({ status: "ok", service: "mcp-server-agent-security", timestamp: new Date().toISOString() });
   }));
 
   app.use(rateLimitMiddleware("protected-attempt", MAX_PROTECTED_REQUESTS_PER_WINDOW));
@@ -321,7 +321,7 @@ function createApp() {
       try {
         const parsed = new URL(origin);
         const host = parsed.hostname;
-        if (host !== "localhost" && host !== "127.0.0.1" && host !== "[::1]" && host !== "::1") {
+        if (host !== "localhost" && host !== "127.0.0.1" && host !== "::1") {
           res.status(403).json({ error: "Forbidden: non-loopback Origin." });
           return;
         }
@@ -377,7 +377,7 @@ function createApp() {
       MAX_AUDIT_MS
     );
     if (result) {
-      res.json(sanitizeAuditResponse(result));
+      res.status(200).json(sanitizeAuditResponse(result));
     }
   }));
 
@@ -403,7 +403,7 @@ function createApp() {
       MAX_AUDIT_MS
     );
     if (result) {
-      res.json(sanitizeAuditResponse(result));
+      res.status(200).json(sanitizeAuditResponse(result));
     }
   }));
 
@@ -432,7 +432,7 @@ function createApp() {
       MAX_AUDIT_MS
     );
     if (result) {
-      res.json(sanitizeAuditResponse(result));
+      res.status(200).json(sanitizeAuditResponse(result));
     }
   }));
 
@@ -478,7 +478,7 @@ function createApp() {
       MAX_AUDIT_MS
     );
     if (result) {
-      res.json(sanitizeAuditResponse(result));
+      res.status(200).json(sanitizeAuditResponse(result));
     }
   }));
 
@@ -503,7 +503,7 @@ function createApp() {
       MAX_AUDIT_MS
     );
     if (result) {
-      res.json(sanitizeAuditResponse(result));
+      res.status(200).json(sanitizeAuditResponse(result));
     }
   }));
 
@@ -519,7 +519,7 @@ function createApp() {
       return;
     }
 
-    res.json(sanitizeAuditResponse(audit));
+    res.status(200).json(sanitizeAuditResponse(audit));
   }));
 
   app.post("/fix/config", asyncRoute(async (req, res) => {
@@ -544,7 +544,7 @@ function createApp() {
       MAX_AUDIT_MS
     );
     if (result) {
-      res.json(sanitizeAuditResponse(result));
+      res.status(200).json(sanitizeAuditResponse(result));
     }
   }));
 
@@ -574,7 +574,7 @@ function createApp() {
       MAX_AUDIT_MS
     );
     if (result) {
-      res.json(sanitizeAuditResponse(result));
+      res.status(200).json(sanitizeAuditResponse(result));
     }
   }));
 
@@ -614,7 +614,7 @@ function createApp() {
       MAX_AUDIT_MS
     );
     if (result) {
-      res.json(sanitizeAuditResponse(result));
+      res.status(200).json(sanitizeAuditResponse(result));
     }
   }));
 

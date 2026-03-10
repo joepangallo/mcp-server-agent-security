@@ -25,7 +25,13 @@ function printUsage() {
       "  --mcp            Start the MCP stdio server (for use with MCP clients)",
       "  --help, -h       Show this help message",
       "  --version, -v    Show version number",
-      "  --json           Output raw JSON instead of formatted tables"
+      "  --json           Output raw JSON instead of formatted tables",
+      "",
+      "Environment Variables:",
+      "  AGENT_SECURITY_HOST            Server host (default: 127.0.0.1)",
+      "  AGENT_SECURITY_PORT            Server port (default: 3091)",
+      "  AGENT_SECURITY_API_KEY         API key for remote access (optional)",
+      "  AGENT_SECURITY_ADMIN_MODE      Enable active server probing (set to \"1\")"
     ].join("\n") + "\n"
   );
 }
