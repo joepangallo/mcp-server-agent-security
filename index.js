@@ -316,12 +316,18 @@ function createApp() {
   });
   app.use(express.json({ limit: "5mb" }));
   app.use((req, res, next) => {
-    const origin = req.get("origin");
-    if (origin) {
+    const hasOrigin = "origin" in req.headers;
+    if (hasOrigin) {
+      const origin = String(req.headers.origin || "").trim();
+      if (!origin) {
+        res.status(403).json({ error: "Forbidden: empty Origin." });
+        return;
+      }
       try {
         const parsed = new URL(origin);
-        const host = parsed.hostname;
-        if (host !== "localhost" && host !== "127.0.0.1" && host !== "::1") {
+        const host = parsed.hostname.toLowerCase();
+        const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+        if (!LOOPBACK_HOSTS.has(host)) {
           res.status(403).json({ error: "Forbidden: non-loopback Origin." });
           return;
         }
