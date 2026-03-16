@@ -1,0 +1,47 @@
+{
+  "name": "mcp-server-agent-security",
+  "version": "1.1.0",
+  "description": "Audit and remediate AI agent and MCP server security vulnerabilities, prompt injection risk, and data exfiltration paths.",
+  "command": "node",
+  "args": [
+    "mcp/index.js"
+  ],
+  "tools": [
+    {
+      "name": "audit_mcp_config",
+      "description": "Static analysis of raw MCP config JSON."
+    },
+    {
+      "name": "audit_mcp_server",
+      "description": "Active probing of a running MCP server over stdio."
+    },
+    {
+      "name": "audit_prompt_injection",
+      "description": "Prompt-injection resistance analysis for a system prompt and tool set."
+    },
+    {
+      "name": "audit_agent_dataflow",
+      "description": "Capability-based PII and exfiltration path tracing."
+    },
+    {
+      "name": "scan_mcp_package",
+      "description": "npm package scan for dependencies, dangerous patterns, and permission issues."
+    },
+    {
+      "name": "generate_report",
+      "description": "Combine multiple stored audits into a single executive report."
+    },
+    {
+      "name": "fix_mcp_config",
+      "description": "Auto-remediate MCP config security issues and return a hardened config."
+    },
+    {
+      "name": "harden_system_prompt",
+      "description": "Harden a system prompt with injection-resistant guardrails."
+    },
+    {
+      "name": "generate_policy",
+      "description": "Generate an enforceable JSON security policy from MCP config."
+    }
+  ]
+}

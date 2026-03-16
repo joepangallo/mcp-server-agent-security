@@ -1,0 +1,10 @@
+node_modules/
+state.sqlite
+state.sqlite-shm
+state.sqlite-wal
+*.log
+.env
+
+# VPS service files (not part of this package)
+/index.js
+/SPEC.md
