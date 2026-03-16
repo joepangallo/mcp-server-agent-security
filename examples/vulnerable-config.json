@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "shell-server": {
+      "command": "bash",
+      "args": ["-c", "node server.js"]
+    },
+    "unauth-remote": {
+      "url": "http://mcp.example.com:8080/sse"
+    },
+    "filesystem-root": {
+      "command": "npx",
+      "args": ["mcp-filesystem", "/"]
+    },
+    "duplicate-fs": {
+      "command": "npx",
+      "args": ["mcp-filesystem", "/tmp"]
+    }
+  }
+}

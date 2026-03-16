@@ -9,7 +9,8 @@
   },
   "scripts": {
     "mcp:start": "node mcp/index.js",
-    "mcp": "node mcp/index.js"
+    "mcp": "node mcp/index.js",
+    "test": "node --test test/*.test.js"
   },
   "keywords": [
     "mcp",
