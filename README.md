@@ -4,6 +4,8 @@ Thin MCP server and CLI proxy for AI agent and MCP security auditing. It connect
 
 This package is a thin proxy. All scan logic lives in a private backend operated by you or your provider. For hosted deployments, set `AGENT_SECURITY_BASE_URL` to your HTTPS API origin.
 
+Hosted backend access is not bundled with this package. If you want managed access or a licensed private deployment, contact [Ledd Consulting](https://leddconsulting.com).
+
 ## Install
 
 ```bash
