@@ -1,8 +1,8 @@
 # mcp-audit-server
 
-Thin MCP server and CLI proxy for AI agent and MCP security auditing. Connects to a running `mcp-security-audit` service to analyze MCP configurations, test prompt injection resistance, trace data flows, scan packages, and generate security policies.
+Thin MCP server and CLI proxy for AI agent and MCP security auditing. It connects to a private audit API to analyze MCP configurations, test prompt injection resistance, trace data flows, scan packages, and generate security policies.
 
-This package is a thin proxy -- all scan logic runs on a separately running audit API (default: `http://127.0.0.1:3091`).
+This package is a thin proxy. All scan logic lives in a private backend operated by you or your provider. For hosted deployments, set `AGENT_SECURITY_BASE_URL` to your HTTPS API origin.
 
 ## Install
 
@@ -43,7 +43,7 @@ The server exposes 9 tools over stdio:
 
 ## Usage as CLI
 
-The CLI forwards commands to the audit API.
+The CLI forwards commands to the private audit API.
 
 ```bash
 # Audit an MCP configuration file
@@ -84,6 +84,7 @@ mcp-audit-server --mcp
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `AGENT_SECURITY_BASE_URL` | (none) | Full audit API origin, e.g. `https://audit.example.com` |
 | `AGENT_SECURITY_HOST` | `127.0.0.1` | Audit API host |
 | `AGENT_SECURITY_PORT` | `3091` | Audit API port |
 | `AGENT_SECURITY_API_KEY` | (none) | API key for authenticated access |
@@ -108,7 +109,7 @@ mcp-audit-server --mcp
 ## Requirements
 
 - Node.js >= 18
-- A running `mcp-security-audit` service or compatible audit API (default: `http://127.0.0.1:3091`)
+- Access to a private audit API. Use `AGENT_SECURITY_BASE_URL` for hosted HTTPS deployments, or `AGENT_SECURITY_HOST` and `AGENT_SECURITY_PORT` for local/private-network deployments.
 
 ## License
 

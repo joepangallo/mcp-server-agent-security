@@ -32,10 +32,10 @@ If you launch the MCP proxy through `npx`, update your client config:
 
 The old package name was overloaded across two different repos. The split is now:
 
-- `mcp-security-audit`: full local audit engine, HTTP API, MCP server, and CLI
-- `mcp-audit-server`: thin MCP/CLI proxy that forwards to a running audit API
+- private audit engine: proprietary backend, rules, storage, and remediation logic
+- `mcp-audit-server`: thin MCP/CLI proxy that forwards to that private audit API
 
-Use `mcp-audit-server` only when you want the forwarding model. If you want local scanning and the HTTP service in one package, use `mcp-security-audit` instead.
+Use `mcp-audit-server` when you want the public client package. Configure it against your hosted or licensed private audit API.
 
 ## Publisher Checklist
 
@@ -43,7 +43,7 @@ Use `mcp-audit-server` only when you want the forwarding model. If you want loca
 2. Deprecate the old package name:
 
 ```bash
-npm deprecate mcp-server-agent-security@"*" "Deprecated: use mcp-security-audit for the local audit engine or mcp-audit-server for the thin MCP/API proxy."
+npm deprecate mcp-server-agent-security@"*" "Deprecated: use mcp-audit-server. The audit backend is now private and licensed separately."
 ```
 
-3. Link the proxy repo README to the engine repo so users can find the required backend package quickly.
+3. Update the public README to point users to your hosted API or sales contact, not to a public engine package.

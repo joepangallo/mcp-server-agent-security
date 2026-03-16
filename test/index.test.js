@@ -46,4 +46,22 @@ describe("index.js exports", () => {
     assert.equal(HOST, "0.0.0.0");
     delete process.env.AGENT_SECURITY_HOST;
   });
+
+  it("BASE_URL defaults to a local http origin", () => {
+    delete process.env.AGENT_SECURITY_BASE_URL;
+    delete process.env.AGENT_SECURITY_HOST;
+    delete process.env.AGENT_SECURITY_PORT;
+
+    delete require.cache[require.resolve("../index.js")];
+    const { BASE_URL } = require("../index.js");
+    assert.equal(BASE_URL, "http://127.0.0.1:3091");
+  });
+
+  it("BASE_URL respects AGENT_SECURITY_BASE_URL and trims trailing slashes", () => {
+    process.env.AGENT_SECURITY_BASE_URL = "https://audit.example.com///";
+    delete require.cache[require.resolve("../index.js")];
+    const { BASE_URL } = require("../index.js");
+    assert.equal(BASE_URL, "https://audit.example.com");
+    delete process.env.AGENT_SECURITY_BASE_URL;
+  });
 });

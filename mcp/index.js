@@ -1,14 +1,12 @@
 /**
  * MCP server for agent-security — thin proxy to the private audit API.
  *
- * All scan logic runs on the private agent-security-audit service.
+ * All scan logic runs on a private audit API.
  * This MCP server only exposes tool definitions and forwards requests.
  */
 
-const AUDIT_API_HOST = process.env.AGENT_SECURITY_HOST || "127.0.0.1";
-const AUDIT_API_PORT = process.env.AGENT_SECURITY_PORT || "3091";
 const AUDIT_API_KEY = process.env.AGENT_SECURITY_API_KEY || "";
-const AUDIT_BASE_URL = `http://${AUDIT_API_HOST}:${AUDIT_API_PORT}`;
+const { BASE_URL: AUDIT_BASE_URL } = require("../index");
 const { version: APP_VERSION } = require("../package.json");
 
 const MCP_MAX_REQUESTS_PER_MINUTE = 30;

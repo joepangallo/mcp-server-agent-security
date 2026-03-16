@@ -2,9 +2,8 @@
 
 const fs = require("fs");
 const path = require("path");
-const { PORT } = require("./index");
+const { BASE_URL } = require("./index");
 
-const HOST = process.env.AGENT_SECURITY_HOST || "127.0.0.1";
 const API_KEY = process.env.AGENT_SECURITY_API_KEY || "";
 
 function printUsage() {
@@ -28,6 +27,7 @@ function printUsage() {
       "  --json           Output raw JSON instead of formatted tables",
       "",
       "Environment Variables:",
+      "  AGENT_SECURITY_BASE_URL        Full audit API origin, e.g. https://audit.example.com",
       "  AGENT_SECURITY_HOST            Server host (default: 127.0.0.1)",
       "  AGENT_SECURITY_PORT            Server port (default: 3091)",
       "  AGENT_SECURITY_API_KEY         API key for remote access (optional)",
@@ -44,7 +44,7 @@ async function callApi(method, pathname, payload) {
     headers["x-api-key"] = API_KEY;
   }
 
-  const response = await fetch(`http://${HOST}:${PORT}${pathname}`, {
+  const response = await fetch(`${BASE_URL}${pathname}`, {
     method,
     headers,
     body: payload ? JSON.stringify(payload) : undefined
