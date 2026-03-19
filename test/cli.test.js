@@ -1,8 +1,9 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
-const { execFileSync } = require("node:child_process");
+const { execFileSync, spawn } = require("node:child_process");
 const path = require("node:path");
 
+const { testOnly } = require("../cli");
 const CLI_PATH = path.join(__dirname, "..", "cli.js");
 
 function runCli(args = []) {
@@ -70,17 +71,36 @@ describe("CLI — unknown commands", () => {
 });
 
 describe("CLI — --mcp flag", () => {
-  it("--mcp flag triggers MCP server mode (process starts)", () => {
-    const { execFile } = require("node:child_process");
-    const child = execFile(process.execPath, [CLI_PATH, "--mcp"], {
-      timeout: 1000,
+  it("--mcp flag keeps the MCP server process alive", async () => {
+    const child = spawn(process.execPath, [CLI_PATH, "--mcp"], {
+      cwd: path.join(__dirname, ".."),
+      stdio: ["pipe", "pipe", "pipe"],
     });
 
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        child.kill("SIGTERM");
-        resolve();
-      }, 500);
+    let exitCode = null;
+    child.on("exit", (code) => {
+      exitCode = code;
     });
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(exitCode, null);
+    child.kill("SIGTERM");
+    await new Promise((resolve) => child.once("exit", resolve));
+  });
+});
+
+describe("CLI — parsing", () => {
+  it("supports --json before the command", () => {
+    const parsed = testOnly.parseCliArgs(["--json", "report", "abc"]);
+    assert.equal(parsed.command, "report");
+    assert.deepEqual(parsed.args, ["abc"]);
+    assert.equal(parsed.jsonMode, true);
+  });
+
+  it("removes --json from scan-server forwarded args", () => {
+    const parsed = testOnly.parseCliArgs(["scan-server", "node", "--json", "server.js"]);
+    assert.equal(parsed.command, "scan-server");
+    assert.deepEqual(parsed.args, ["node", "server.js"]);
+    assert.equal(parsed.jsonMode, true);
   });
 });

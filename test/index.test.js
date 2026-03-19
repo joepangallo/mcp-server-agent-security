@@ -40,10 +40,10 @@ describe("index.js exports", () => {
   });
 
   it("HOST respects AGENT_SECURITY_HOST env var", () => {
-    process.env.AGENT_SECURITY_HOST = "0.0.0.0";
+    process.env.AGENT_SECURITY_HOST = "localhost";
     delete require.cache[require.resolve("../index.js")];
     const { HOST } = require("../index.js");
-    assert.equal(HOST, "0.0.0.0");
+    assert.equal(HOST, "localhost");
     delete process.env.AGENT_SECURITY_HOST;
   });
 
@@ -62,6 +62,25 @@ describe("index.js exports", () => {
     delete require.cache[require.resolve("../index.js")];
     const { BASE_URL } = require("../index.js");
     assert.equal(BASE_URL, "https://audit.example.com");
+    delete process.env.AGENT_SECURITY_BASE_URL;
+  });
+
+  it("rejects non-loopback host/port fallback without AGENT_SECURITY_BASE_URL", () => {
+    delete process.env.AGENT_SECURITY_BASE_URL;
+    process.env.AGENT_SECURITY_HOST = "audit.example.com";
+    delete require.cache[require.resolve("../index.js")];
+
+    assert.throws(() => require("../index.js"), /https:\/\/ origin/);
+
+    delete process.env.AGENT_SECURITY_HOST;
+  });
+
+  it("rejects non-loopback http AGENT_SECURITY_BASE_URL", () => {
+    process.env.AGENT_SECURITY_BASE_URL = "http://audit.example.com";
+    delete require.cache[require.resolve("../index.js")];
+
+    assert.throws(() => require("../index.js"), /https:\/\//);
+
     delete process.env.AGENT_SECURITY_BASE_URL;
   });
 });

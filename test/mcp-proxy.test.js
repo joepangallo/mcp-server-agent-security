@@ -1,17 +1,9 @@
-const { describe, it, beforeEach } = require("node:test");
+const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
-
-// We test the exported functions from mcp/index.js without actually starting
-// the stdio server (main() requires MCP SDK). The key testable exports are
-// runAuditTool (proxy logic, rate limiting, validation).
-
-// mcp/index.js exports { main, runAuditTool }
 const mcpModule = require("../mcp/index.js");
 
 describe("MCP proxy — tool definitions", () => {
   it("defines exactly 9 tools", () => {
-    // We can verify by calling runAuditTool with each known tool name
-    // and checking that unknown tools return an error.
     const expectedTools = [
       "audit_mcp_config",
       "audit_mcp_server",
@@ -23,7 +15,10 @@ describe("MCP proxy — tool definitions", () => {
       "harden_system_prompt",
       "generate_policy",
     ];
-    assert.equal(expectedTools.length, 9);
+    assert.deepEqual(
+      mcpModule.testOnly.toolDefinitions.map((tool) => tool.name),
+      expectedTools
+    );
   });
 });
 
@@ -69,6 +64,51 @@ describe("MCP proxy — runAuditTool", () => {
     const result = await mcpModule.runAuditTool("nonexistent_tool", [1, 2]);
     assert.ok(result.error);
   });
+
+  it("blocks audit_mcp_server without AGENT_SECURITY_ADMIN_MODE=1", async () => {
+    const previousValue = process.env.AGENT_SECURITY_ADMIN_MODE;
+    delete process.env.AGENT_SECURITY_ADMIN_MODE;
+
+    try {
+      const result = await mcpModule.runAuditTool("audit_mcp_server", {
+        command: "node",
+        args: ["server.js"],
+      });
+      assert.match(result.error, /AGENT_SECURITY_ADMIN_MODE=1/);
+    } finally {
+      if (previousValue === undefined) {
+        delete process.env.AGENT_SECURITY_ADMIN_MODE;
+      } else {
+        process.env.AGENT_SECURITY_ADMIN_MODE = previousValue;
+      }
+    }
+  });
+
+  it("generate_report combines multiple reports into one composite report", () => {
+    const combined = mcpModule.testOnly.combineReports([
+      {
+        id: "a",
+        findings: [
+          { severity: "high", source: "a", cwe: "shell_injection", description: "Issue A" },
+          { severity: "high", source: "a", cwe: "shell_injection", description: "Issue A" },
+        ],
+      },
+      {
+        id: "b",
+        findings: [
+          { severity: "medium", source: "b", cwe: "info_disclosure", description: "Issue B" },
+        ],
+      },
+    ], ["a", "b"]);
+
+    assert.equal(combined.type, "report");
+    assert.equal(combined.status, "completed");
+    assert.equal(combined.findings.length, 2);
+    assert.equal(combined.findingsSummary.high, 1);
+    assert.equal(combined.findingsSummary.medium, 1);
+    assert.equal(combined.score, 82);
+    assert.equal(combined.grade, "B-");
+  });
 });
 
 describe("MCP proxy — rate limiting", () => {
@@ -98,8 +138,7 @@ describe("MCP proxy — rate limiting", () => {
     const rateLimited = results.some(
       (r) => r.error && /rate limit/i.test(r.error)
     );
-    // This may or may not trigger depending on previous test state,
-    // so we just verify no exceptions were thrown
+    assert.equal(rateLimited, true);
     assert.ok(results.every((r) => r.error));
   });
 });

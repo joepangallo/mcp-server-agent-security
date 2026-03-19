@@ -5,6 +5,9 @@ const path = require("path");
 const { BASE_URL } = require("./index");
 
 const API_KEY = process.env.AGENT_SECURITY_API_KEY || "";
+const ADMIN_MODE_ENABLED = process.env.AGENT_SECURITY_ADMIN_MODE === "1";
+const REQUEST_TIMEOUT_MS = Number.parseInt(process.env.AGENT_SECURITY_REQUEST_TIMEOUT_MS || "", 10) || 15_000;
+const SCAN_SERVER_REQUIRES_ADMIN_MESSAGE = "scan-server requires AGENT_SECURITY_ADMIN_MODE=1.";
 
 function printUsage() {
   process.stderr.write(
@@ -44,11 +47,24 @@ async function callApi(method, pathname, payload) {
     headers["x-api-key"] = API_KEY;
   }
 
-  const response = await fetch(`${BASE_URL}${pathname}`, {
-    method,
-    headers,
-    body: payload ? JSON.stringify(payload) : undefined
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(`${BASE_URL}${pathname}`, {
+      method,
+      headers,
+      body: payload ? JSON.stringify(payload) : undefined,
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error && error.name === "AbortError") {
+      throw new Error(`Request timed out after ${REQUEST_TIMEOUT_MS}ms.`);
+    }
+    throw new Error(error && error.message ? error.message : "Request failed.");
+  } finally {
+    clearTimeout(timer);
+  }
 
   let body;
   try {
@@ -61,6 +77,38 @@ async function callApi(method, pathname, payload) {
   }
 
   return body;
+}
+
+function parseCliArgs(argv) {
+  const input = Array.isArray(argv) ? argv : [];
+  let jsonMode = false;
+  let command = "";
+  const commandArgs = [];
+
+  for (const rawArg of input) {
+    const arg = String(rawArg || "");
+    if (!command) {
+      if (arg === "--json") {
+        jsonMode = true;
+        continue;
+      }
+      command = arg;
+      continue;
+    }
+
+    if (arg === "--json") {
+      jsonMode = true;
+      continue;
+    }
+
+    commandArgs.push(arg);
+  }
+
+  return {
+    command,
+    args: commandArgs,
+    jsonMode
+  };
 }
 
 function formatReport(report) {
@@ -162,8 +210,8 @@ function formatGeneratePolicy(result) {
 }
 
 async function main() {
-  const [, , command, ...args] = process.argv;
-  const jsonMode = process.argv.includes("--json");
+  const parsedArgs = parseCliArgs(process.argv.slice(2));
+  const { command, args, jsonMode } = parsedArgs;
 
   try {
     if (command === "--help" || command === "-h") {
@@ -195,6 +243,10 @@ async function main() {
     }
 
     if (command === "scan-server") {
+      if (!ADMIN_MODE_ENABLED) {
+        throw new Error(SCAN_SERVER_REQUIRES_ADMIN_MESSAGE);
+      }
+
       const targetCommand = args[0];
       if (!targetCommand) {
         throw new Error("scan-server requires a command.");
@@ -339,8 +391,18 @@ async function main() {
 
 if (require.main === module) {
   if (process.argv.includes("--mcp")) {
-    require("./mcp/index.js");
+    require("./mcp/index.js").main().catch((error) => {
+      process.stderr.write(`${error.stack || error.message}\n`);
+      process.exit(1);
+    });
   } else {
     main();
   }
 }
+
+module.exports = {
+  main,
+  testOnly: {
+    parseCliArgs
+  }
+};

@@ -8,6 +8,8 @@
 const AUDIT_API_KEY = process.env.AGENT_SECURITY_API_KEY || "";
 const { BASE_URL: AUDIT_BASE_URL } = require("../index");
 const { version: APP_VERSION } = require("../package.json");
+const REQUEST_TIMEOUT_MS = Number.parseInt(process.env.AGENT_SECURITY_REQUEST_TIMEOUT_MS || "", 10) || 15_000;
+const ACTIVE_SERVER_PROBING_DISABLED_MESSAGE = "Active server probing is disabled unless AGENT_SECURITY_ADMIN_MODE=1.";
 
 const MCP_MAX_REQUESTS_PER_MINUTE = 30;
 const MCP_WINDOW_MS = 60_000;
@@ -133,11 +135,24 @@ async function callAuditApi(method, apiPath, payload) {
     headers["x-api-key"] = AUDIT_API_KEY;
   }
 
-  const response = await fetch(`${AUDIT_BASE_URL}${apiPath}`, {
-    method,
-    headers,
-    body: payload ? JSON.stringify(payload) : undefined,
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(`${AUDIT_BASE_URL}${apiPath}`, {
+      method,
+      headers,
+      body: payload ? JSON.stringify(payload) : undefined,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error && error.name === "AbortError") {
+      return { error: `Audit API request timed out after ${REQUEST_TIMEOUT_MS}ms.` };
+    }
+    return { error: error && error.message ? error.message : "Audit API request failed." };
+  } finally {
+    clearTimeout(timer);
+  }
 
   const text = await response.text();
   let body;
@@ -164,6 +179,126 @@ function checkMcpRateLimit() {
   return mcpRequestCount <= MCP_MAX_REQUESTS_PER_MINUTE;
 }
 
+function isAdminModeEnabled() {
+  return process.env.AGENT_SECURITY_ADMIN_MODE === "1";
+}
+
+const severityPenalty = {
+  critical: 20,
+  high: 12,
+  medium: 6,
+  low: 2,
+  info: 0
+};
+
+function dedupeFindings(findings) {
+  const deduped = [];
+  const seen = new Set();
+
+  for (const finding of Array.isArray(findings) ? findings : []) {
+    if (!finding || typeof finding !== "object") {
+      continue;
+    }
+    const key = JSON.stringify([
+      finding.severity || "",
+      finding.source || "",
+      finding.cwe || "",
+      finding.location || "",
+      finding.description || ""
+    ]);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(finding);
+  }
+
+  return deduped;
+}
+
+function summarizeFindings(findings) {
+  const summary = {
+    total: 0,
+    critical: 0,
+    high: 0,
+    medium: 0,
+    low: 0,
+    info: 0
+  };
+
+  for (const finding of findings) {
+    summary.total += 1;
+    if (Object.prototype.hasOwnProperty.call(summary, finding.severity)) {
+      summary[finding.severity] += 1;
+    }
+  }
+
+  return summary;
+}
+
+function calculateScore(findings) {
+  let score = 100;
+  for (const finding of findings) {
+    score -= severityPenalty[finding.severity] || 0;
+  }
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function calculateGrade(score) {
+  if (score >= 97) return "A+";
+  if (score >= 93) return "A";
+  if (score >= 90) return "A-";
+  if (score >= 87) return "B+";
+  if (score >= 83) return "B";
+  if (score >= 80) return "B-";
+  if (score >= 77) return "C+";
+  if (score >= 73) return "C";
+  if (score >= 70) return "C-";
+  if (score >= 67) return "D+";
+  if (score >= 63) return "D";
+  if (score >= 60) return "D-";
+  return "F";
+}
+
+function buildExecutiveSummary(summary, score, grade, count) {
+  if (!summary.total) {
+    return `Composite report completed with no findings. Score ${score}/100 (${grade}).`;
+  }
+
+  const severityParts = [];
+  for (const severity of ["critical", "high", "medium", "low", "info"]) {
+    if (summary[severity]) {
+      severityParts.push(`${summary[severity]} ${severity}`);
+    }
+  }
+
+  return [
+    `Composite report generated from ${count} audit${count === 1 ? "" : "s"} with score ${score}/100 (${grade}).`,
+    `${summary.total} deduplicated finding${summary.total === 1 ? "" : "s"} identified${severityParts.length ? ` including ${severityParts.join(", ")}` : ""}.`
+  ].join(" ");
+}
+
+function combineReports(reports, sourceAuditIds) {
+  const findings = dedupeFindings(reports.flatMap((report) => Array.isArray(report.findings) ? report.findings : []));
+  const score = calculateScore(findings);
+  const grade = calculateGrade(score);
+  const findingsSummary = summarizeFindings(findings);
+
+  return {
+    id: sourceAuditIds.join(","),
+    type: "report",
+    target: sourceAuditIds.join(", "),
+    status: "completed",
+    score,
+    grade,
+    findings,
+    findingsSummary,
+    sourceAuditIds,
+    executiveSummary: buildExecutiveSummary(findingsSummary, score, grade, reports.length),
+    generatedAt: new Date().toISOString()
+  };
+}
+
 async function runAuditTool(toolName, args) {
   if (!checkMcpRateLimit()) {
     return { error: "Rate limit exceeded. Try again later." };
@@ -183,8 +318,16 @@ async function runAuditTool(toolName, args) {
     if (ids.length === 1) {
       return callAuditApi("GET", `/report/${encodeURIComponent(ids[0])}`);
     }
-    const results = await Promise.all(ids.map((id) => callAuditApi("GET", `/report/${encodeURIComponent(id)}`)));
-    return { reports: results };
+    const reports = await Promise.all(ids.map((id) => callAuditApi("GET", `/report/${encodeURIComponent(id)}`)));
+    const errors = reports.filter((report) => report && report.error);
+    if (errors.length) {
+      return { error: errors[0].error };
+    }
+    return combineReports(reports, ids);
+  }
+
+  if (toolName === "audit_mcp_server" && !isAdminModeEnabled()) {
+    return { error: ACTIVE_SERVER_PROBING_DISABLED_MESSAGE };
   }
 
   const route = toolRoutes[toolName];
@@ -267,4 +410,12 @@ if (require.main === module) {
   });
 }
 
-module.exports = { main, runAuditTool };
+module.exports = {
+  main,
+  runAuditTool,
+  testOnly: {
+    ACTIVE_SERVER_PROBING_DISABLED_MESSAGE,
+    combineReports,
+    toolDefinitions
+  }
+};
