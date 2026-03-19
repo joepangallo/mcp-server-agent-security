@@ -42,13 +42,25 @@ The old package name was overloaded across two different repos. The split is now
 
 Use `ledd-mcp-audit-server` when you want the public client package. It installs the `mcp-audit-server` CLI and should be configured against your hosted or licensed private audit API.
 
+## Registry Publishing
+
+For public distribution, publish only the thin proxy:
+
+1. Publish `ledd-mcp-audit-server` to npm.
+2. Publish `io.github.joepangallo/mcp-audit-server` to the official MCP Registry.
+3. Keep the private audit engine repo private and do not list it on public directories.
+4. Let downstream directories such as Glama and PulseMCP sync from the official registry.
+5. Claim the Glama page only if you want page ownership and manual sync controls.
+
 ## Publisher Checklist
 
 1. Publish this package under the new name: `npm publish`
-2. Deprecate the old package name:
+2. Publish the package metadata to the official MCP Registry.
+3. Deprecate the old package name:
 
 ```bash
 npm deprecate mcp-server-agent-security@"*" "Deprecated: use ledd-mcp-audit-server. The audit backend is now private and licensed separately."
 ```
 
-3. Update the public README to point users to your hosted API or sales contact, not to a public engine package.
+4. Update the public README to point users to your hosted API or sales contact, not to a public engine package.
+5. Treat Glama authorship claim as optional post-publish admin work, not as a separate release channel.

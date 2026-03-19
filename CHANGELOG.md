@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Clarified the public distribution model in the docs: npm package plus official MCP Registry first, with downstream directories syncing from that source.
+- Documented that Glama claim is optional and only needed for page ownership and manual sync controls.
+
 ## 2.0.2 (2026-03-19)
 
 ### Added

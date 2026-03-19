@@ -14,6 +14,13 @@ Self-hosted or private-network flow:
 
 Hosted backend access is not bundled with this package. If you want managed access or a licensed private deployment, contact [Ledd Consulting](https://leddconsulting.com).
 
+## Registry and Directories
+
+- npm package: `ledd-mcp-audit-server`
+- Official MCP Registry name: `io.github.joepangallo/mcp-audit-server`
+- Downstream directories such as Glama and PulseMCP should ingest from the official MCP Registry, so you usually do not need separate manual submissions for each site.
+- Glama authorship claim is optional. It only gives you ownership of the Glama page and access to manual sync and re-scan controls.
+
 ## Install
 
 ```bash
@@ -22,6 +29,8 @@ npm install ledd-mcp-audit-server
 
 Install package: `ledd-mcp-audit-server`
 CLI command after install: `mcp-audit-server`
+
+This is the public package that should be published to npm and listed in public MCP directories. The audit engine itself stays private.
 
 The old package name `mcp-server-agent-security` is retired. See [MIGRATION.md](./MIGRATION.md) for upgrade steps and the deprecation plan.
 
