@@ -1,6 +1,6 @@
 {
   "name": "mcp-audit-server",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "Audit and remediate AI agent and MCP server security vulnerabilities, prompt injection risk, and data exfiltration paths through a hosted audit backend.",
   "command": "node",
   "args": [
