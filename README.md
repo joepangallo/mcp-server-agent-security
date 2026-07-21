@@ -150,6 +150,10 @@ For a self-hosted backend, also set `AGENT_SECURITY_BASE_URL=https://your-audit-
 - Node.js >= 18
 - Access to a private audit API. The managed hosted default is `https://audit.leddconsulting.com` when `AGENT_SECURITY_API_KEY` is set. Use `AGENT_SECURITY_BASE_URL` for other hosted HTTPS deployments, or `AGENT_SECURITY_HOST` and `AGENT_SECURITY_PORT` for local/private-network deployments.
 
+## Provenance
+
+Releases are published to npm from GitHub Actions with [npm provenance](https://docs.npmjs.com/generating-provenance-statements) (`npm publish --provenance`) via npm trusted publishing (OIDC — no long-lived tokens). Each published version carries a signed, publicly verifiable attestation linking the package on npm to the exact source commit and the workflow run that built it, so you can confirm the code you install is the code in this repository: run `npm audit signatures` in a project that depends on this package, or view the attestation on the package's npm page.
+
 ## License
 
 MIT
