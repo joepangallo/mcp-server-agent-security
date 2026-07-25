@@ -9,3 +9,7 @@ state.sqlite-wal
 # VPS service files (not part of this package)
 /index.js
 /SPEC.md
+
+# Local agent context — contains internal infrastructure details, never publish
+AGENTS.md
+CLAUDE.md
