@@ -2,7 +2,13 @@
 
 const fs = require("fs");
 const path = require("path");
-const { BASE_URL, DEFAULT_HOSTED_BASE_URL } = require("./index");
+const {
+  BASE_URL,
+  DEFAULT_HOSTED_BASE_URL,
+  buildConnectionErrorMessage,
+  buildForbiddenMessage,
+  isConnectionError
+} = require("./index");
 
 const API_KEY = process.env.AGENT_SECURITY_API_KEY || "";
 const ADMIN_MODE_ENABLED = process.env.AGENT_SECURITY_ADMIN_MODE === "1";
@@ -54,6 +60,22 @@ function buildUnauthorizedMessage(baseMessage) {
   return `${message} Set AGENT_SECURITY_API_KEY for ${BASE_URL} access.`;
 }
 
+function buildForbiddenCliMessage() {
+  return buildForbiddenMessage(BASE_URL, Boolean(API_KEY));
+}
+
+/**
+ * Never let a raw `TypeError: fetch failed` reach the terminal — say which URL
+ * was tried and which environment variable points somewhere else.
+ */
+function describeCliError(error) {
+  if (isConnectionError(error)) {
+    return buildConnectionErrorMessage(error, BASE_URL);
+  }
+
+  return error && error.message ? error.message : String(error);
+}
+
 async function callApi(method, pathname, payload) {
   const headers = {
     "content-type": "application/json"
@@ -76,9 +98,18 @@ async function callApi(method, pathname, payload) {
     if (error && error.name === "AbortError") {
       throw new Error(`Request timed out after ${REQUEST_TIMEOUT_MS}ms.`);
     }
+    if (isConnectionError(error)) {
+      throw new Error(buildConnectionErrorMessage(error, BASE_URL));
+    }
     throw new Error(error && error.message ? error.message : "Request failed.");
   } finally {
     clearTimeout(timer);
+  }
+
+  // Answer 403 from the client's point of view before touching the backend
+  // body, which describes a loopback trust model the user cannot act on.
+  if (response.status === 403) {
+    throw new Error(buildForbiddenCliMessage());
   }
 
   let body;
@@ -499,7 +530,7 @@ async function main() {
     printUsage();
     process.exitCode = 1;
   } catch (error) {
-    process.stderr.write(`${error.message}\n`);
+    process.stderr.write(`${describeCliError(error)}\n`);
     process.exitCode = 1;
   }
 }
@@ -518,7 +549,9 @@ if (require.main === module) {
 module.exports = {
   main,
   testOnly: {
+    buildForbiddenCliMessage,
     buildUnauthorizedMessage,
+    describeCliError,
     formatTrustAudit,
     parseCliArgs
   }

@@ -6,7 +6,13 @@
  */
 
 const AUDIT_API_KEY = process.env.AGENT_SECURITY_API_KEY || "";
-const { BASE_URL: AUDIT_BASE_URL, DEFAULT_HOSTED_BASE_URL } = require("../index");
+const {
+  BASE_URL: AUDIT_BASE_URL,
+  DEFAULT_HOSTED_BASE_URL,
+  buildConnectionErrorMessage,
+  buildForbiddenMessage,
+  isConnectionError
+} = require("../index");
 const { version: APP_VERSION } = require("../package.json");
 const REQUEST_TIMEOUT_MS = Number.parseInt(process.env.AGENT_SECURITY_REQUEST_TIMEOUT_MS || "", 10) || 15_000;
 const ACTIVE_SERVER_PROBING_DISABLED_MESSAGE = "Active server probing is disabled unless AGENT_SECURITY_ADMIN_MODE=1.";
@@ -162,12 +168,22 @@ async function callAuditApi(method, apiPath, payload) {
     if (error && error.name === "AbortError") {
       return { error: `Audit API request timed out after ${REQUEST_TIMEOUT_MS}ms.` };
     }
+    if (isConnectionError(error)) {
+      return { error: buildConnectionErrorMessage(error, AUDIT_BASE_URL) };
+    }
     return { error: error && error.message ? error.message : "Audit API request failed." };
   } finally {
     clearTimeout(timer);
   }
 
   const text = await response.text();
+
+  // Answer 403 from the client's point of view; never relay the backend's own
+  // trust-model wording (loopback-only, etc.) to a user who cannot act on it.
+  if (response.status === 403) {
+    return { error: buildForbiddenMessage(AUDIT_BASE_URL, Boolean(AUDIT_API_KEY)) };
+  }
+
   let body;
   try {
     body = JSON.parse(text);

@@ -113,3 +113,106 @@ describe("index.js exports", () => {
     delete process.env.AGENT_SECURITY_BASE_URL;
   });
 });
+
+function loadIndex() {
+  delete require.cache[require.resolve("../index.js")];
+  return require("../index.js");
+}
+
+function refusedConnectionError() {
+  const error = new TypeError("fetch failed");
+  error.cause = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:3091"), {
+    code: "ECONNREFUSED"
+  });
+  return error;
+}
+
+describe("index.js — connection failure classification", () => {
+  it("treats a bare undici TypeError as a connection failure", () => {
+    const { isConnectionError } = loadIndex();
+    assert.equal(isConnectionError(new TypeError("fetch failed")), true);
+  });
+
+  it("treats a nested ECONNREFUSED cause as a connection failure", () => {
+    const { isConnectionError } = loadIndex();
+    assert.equal(isConnectionError(refusedConnectionError()), true);
+  });
+
+  it("treats an AggregateError of transport failures as a connection failure", () => {
+    const { isConnectionError } = loadIndex();
+    const aggregate = new AggregateError(
+      [Object.assign(new Error("connect ECONNREFUSED ::1:3091"), { code: "ECONNREFUSED" })],
+      "all attempts failed"
+    );
+    assert.equal(isConnectionError(new TypeError("fetch failed", { cause: aggregate })), true);
+  });
+
+  it("does not treat aborts or ordinary errors as connection failures", () => {
+    const { isConnectionError } = loadIndex();
+    const abort = new Error("This operation was aborted");
+    abort.name = "AbortError";
+
+    assert.equal(isConnectionError(abort), false);
+    assert.equal(isConnectionError(new Error("Request failed with status 500")), false);
+    assert.equal(isConnectionError(null), false);
+  });
+});
+
+describe("index.js — connection failure message", () => {
+  it("names the loopback URL it tried and every env var that redirects it", () => {
+    const { buildConnectionErrorMessage, DEFAULT_HOSTED_BASE_URL } = loadIndex();
+    const message = buildConnectionErrorMessage(refusedConnectionError(), "http://127.0.0.1:3091");
+
+    assert.match(message, /http:\/\/127\.0\.0\.1:3091/);
+    assert.match(message, /ECONNREFUSED/);
+    assert.match(message, /AGENT_SECURITY_API_KEY/);
+    assert.match(message, /AGENT_SECURITY_BASE_URL/);
+    assert.match(message, /AGENT_SECURITY_HOST/);
+    assert.ok(message.includes(DEFAULT_HOSTED_BASE_URL));
+    // The raw "fetch failed" text must never be the whole story.
+    assert.notEqual(message.trim(), "fetch failed");
+  });
+
+  it("gives remote-host guidance instead of local-startup guidance for hosted origins", () => {
+    const { buildConnectionErrorMessage } = loadIndex();
+    const message = buildConnectionErrorMessage(
+      new TypeError("fetch failed", {
+        cause: Object.assign(new Error("getaddrinfo ENOTFOUND audit.example.com"), { code: "ENOTFOUND" })
+      }),
+      "https://audit.example.com"
+    );
+
+    assert.match(message, /https:\/\/audit\.example\.com/);
+    assert.match(message, /ENOTFOUND/);
+    assert.match(message, /AGENT_SECURITY_BASE_URL/);
+    assert.doesNotMatch(message, /Nothing is listening/);
+  });
+
+  it("still names the endpoint when the failure carries no error code", () => {
+    const { buildConnectionErrorMessage } = loadIndex();
+    const message = buildConnectionErrorMessage(new TypeError("fetch failed"), "http://127.0.0.1:3091");
+    assert.match(message, /http:\/\/127\.0\.0\.1:3091/);
+  });
+});
+
+describe("index.js — forbidden message", () => {
+  it("tells a key-holding user their key was rejected", () => {
+    const { buildForbiddenMessage } = loadIndex();
+    const message = buildForbiddenMessage("https://audit.leddconsulting.com", true);
+
+    assert.match(message, /403/);
+    assert.match(message, /AGENT_SECURITY_API_KEY was not accepted/);
+    assert.match(message, /audit\.leddconsulting\.com/);
+    assert.doesNotMatch(message, /loopback/i);
+  });
+
+  it("tells a key-less user to set an API key", () => {
+    const { buildForbiddenMessage } = loadIndex();
+    const message = buildForbiddenMessage("https://audit.leddconsulting.com", false);
+
+    assert.match(message, /403/);
+    assert.match(message, /no API key was sent/);
+    assert.match(message, /Set AGENT_SECURITY_API_KEY/);
+    assert.doesNotMatch(message, /loopback/i);
+  });
+});
