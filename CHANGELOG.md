@@ -2,10 +2,23 @@
 
 ## Unreleased
 
+### Breaking
+- The next published release requires Node.js 20 or newer. Node 18 is end-of-life, and the patched Hono Node adapter used by the MCP SDK requires Node 20. Publish this as the next major version rather than a patch/minor update.
+
+### Fixed
+- Unreachable-backend failures no longer surface as a bare `fetch failed`. The CLI and MCP proxy now report the exact URL that was tried, the underlying transport code (e.g. `ECONNREFUSED`), and the environment variables that point the client somewhere else — this was the first-run experience for anyone without a local audit API on `http://127.0.0.1:3091`.
+- `403` responses now tell the user their API key was rejected (or missing) instead of relaying the backend's loopback-client trust wording, which a package user cannot act on.
+- Replaced the token-shaped `ghp_…` placeholder in `examples/claude-desktop.json` with `<your-github-token>` so third-party secret scanners and copy-paste users are not misled.
+
 ### Changed
+- Corrected the README provenance section: no version published so far (2.0.0–2.1.0) carries a provenance attestation. The release workflow is configured for `--provenance` via trusted publishing, but that only takes effect on the first release actually cut from it.
 - Switched the managed hosted default from `https://mcpaudit.metaltorque.dev` to `https://audit.leddconsulting.com`.
 - Clarified the public distribution model in the docs: npm package plus official MCP Registry first, with downstream directories syncing from that source.
 - Documented that Glama claim is optional and only needed for page ownership and manual sync controls.
+- Clean installs now drive CI and release verification; package lint and a moderate-or-higher production dependency audit must pass before publication.
+
+### Security
+- Pinned patched Hono and Hono Node adapter releases and refreshed the MCP SDK dependency tree to remove current request-routing, parser, and validation advisories.
 
 ## 2.0.2 (2026-03-19)
 

@@ -147,8 +147,14 @@ For a self-hosted backend, also set `AGENT_SECURITY_BASE_URL=https://your-audit-
 
 ## Requirements
 
-- Node.js >= 18
+- Node.js >= 20
 - Access to a private audit API. The managed hosted default is `https://audit.leddconsulting.com` when `AGENT_SECURITY_API_KEY` is set. Use `AGENT_SECURITY_BASE_URL` for other hosted HTTPS deployments, or `AGENT_SECURITY_HOST` and `AGENT_SECURITY_PORT` for local/private-network deployments.
+
+## Provenance
+
+**No version published to npm so far carries a provenance attestation.** Versions `2.0.0` through `2.1.0` were published before the release workflow existed, so `npm audit signatures` will report the standard npm registry signature for them and nothing more. Do not treat any currently published tarball as source-verifiable.
+
+The release workflow in [`.github/workflows/publish.yml`](./.github/workflows/publish.yml) is set up to publish on `v*` tags with [npm provenance](https://docs.npmjs.com/generating-provenance-statements) (`npm publish --provenance`) via npm trusted publishing (OIDC — no long-lived tokens). Once a release is actually cut through that workflow — and the package's trusted publisher is registered on npmjs.com — that version will carry a signed, publicly verifiable attestation linking it to the source commit and workflow run. This README will be updated to name the first such version when it ships.
 
 ## License
 

@@ -1,10 +1,48 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const { execFileSync, spawn } = require("node:child_process");
+const http = require("node:http");
+const net = require("node:net");
 const path = require("node:path");
 
 const { testOnly } = require("../cli");
 const CLI_PATH = path.join(__dirname, "..", "cli.js");
+const SAMPLE_CONFIG = path.join(__dirname, "..", "examples", "vulnerable-config.json");
+
+function cliEnv(overrides = {}) {
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("AGENT_SECURITY_")) {
+      delete env[key];
+    }
+  }
+  return { ...env, ...overrides };
+}
+
+function runCliAsync(args = [], envOverrides = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [CLI_PATH, ...args], {
+      cwd: path.join(__dirname, ".."),
+      env: cliEnv(envOverrides),
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (exitCode) => resolve({ stdout, stderr, exitCode }));
+  });
+}
+
+async function reserveClosedPort() {
+  const probe = net.createServer();
+  await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve));
+  const { port } = probe.address();
+  await new Promise((resolve) => probe.close(resolve));
+  return port;
+}
 
 function runCli(args = []) {
   try {
@@ -147,6 +185,71 @@ describe("CLI — auth guidance", () => {
 
     delete require.cache[require.resolve("../index.js")];
     delete require.cache[require.resolve("../cli.js")];
+  });
+});
+
+describe("CLI — unreachable backend", () => {
+  it("explains a refused loopback connection instead of printing 'fetch failed'", async () => {
+    const port = await reserveClosedPort();
+    const result = await runCliAsync(["scan-config", SAMPLE_CONFIG], {
+      AGENT_SECURITY_BASE_URL: `http://127.0.0.1:${port}`,
+    });
+
+    assert.equal(result.exitCode, 1);
+    assert.notEqual(result.stderr.trim(), "fetch failed");
+    assert.match(result.stderr, /Could not reach the audit API/);
+    assert.match(result.stderr, new RegExp(`http://127\\.0\\.0\\.1:${port}`));
+    assert.match(result.stderr, /AGENT_SECURITY_API_KEY/);
+    assert.match(result.stderr, /AGENT_SECURITY_BASE_URL/);
+  });
+
+  it("turns a backend 403 into key guidance without leaking loopback semantics", async () => {
+    const server = http.createServer((req, res) => {
+      req.resume();
+      res.writeHead(403, { "content-type": "application/json" });
+      res.end(JSON.stringify({
+        error: "Audit API only accepts direct loopback clients unless AGENT_SECURITY_API_KEY is configured"
+      }));
+    });
+
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address();
+
+    try {
+      const result = await runCliAsync(["scan-config", SAMPLE_CONFIG], {
+        AGENT_SECURITY_BASE_URL: `http://127.0.0.1:${port}`,
+        AGENT_SECURITY_API_KEY: "test-key",
+      });
+
+      assert.equal(result.exitCode, 1);
+      assert.match(result.stderr, /403/);
+      assert.match(result.stderr, /AGENT_SECURITY_API_KEY was not accepted/);
+      assert.doesNotMatch(result.stderr, /loopback/i);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});
+
+describe("CLI — error formatting", () => {
+  it("describeCliError maps transport failures and passes other errors through", () => {
+    const refused = new TypeError("fetch failed");
+    refused.cause = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:3091"), {
+      code: "ECONNREFUSED",
+    });
+
+    assert.match(testOnly.describeCliError(refused), /Could not reach the audit API/);
+    assert.equal(
+      testOnly.describeCliError(new Error("scan-config requires a file path.")),
+      "scan-config requires a file path."
+    );
+  });
+
+  it("buildForbiddenCliMessage never echoes the backend's loopback wording", () => {
+    const message = testOnly.buildForbiddenCliMessage();
+    assert.match(message, /403/);
+    assert.match(message, /AGENT_SECURITY_API_KEY/);
+    assert.doesNotMatch(message, /loopback/i);
   });
 });
 

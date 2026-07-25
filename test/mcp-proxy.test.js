@@ -159,6 +159,98 @@ describe("MCP proxy — runAuditTool", () => {
   });
 });
 
+describe("MCP proxy — unreachable backend", () => {
+  const AUDIT_ENV_KEYS = [
+    "AGENT_SECURITY_BASE_URL",
+    "AGENT_SECURITY_API_KEY",
+    "AGENT_SECURITY_HOST",
+    "AGENT_SECURITY_PORT"
+  ];
+
+  function withAuditEnv(overrides, run) {
+    const saved = {};
+    for (const key of AUDIT_ENV_KEYS) {
+      saved[key] = process.env[key];
+      delete process.env[key];
+    }
+    for (const [key, value] of Object.entries(overrides)) {
+      process.env[key] = value;
+    }
+
+    const originalFetch = global.fetch;
+    delete require.cache[require.resolve("../index.js")];
+    delete require.cache[require.resolve("../mcp/index.js")];
+
+    try {
+      return run(() => require("../mcp/index.js"));
+    } finally {
+      global.fetch = originalFetch;
+      for (const key of AUDIT_ENV_KEYS) {
+        if (saved[key] === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = saved[key];
+        }
+      }
+      delete require.cache[require.resolve("../index.js")];
+      delete require.cache[require.resolve("../mcp/index.js")];
+    }
+  }
+
+  it("maps a bare 'fetch failed' TypeError to actionable setup guidance", async () => {
+    await withAuditEnv({}, async (load) => {
+      global.fetch = async () => {
+        const error = new TypeError("fetch failed");
+        error.cause = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:3091"), {
+          code: "ECONNREFUSED"
+        });
+        throw error;
+      };
+
+      const freshModule = load();
+      const result = await freshModule.runAuditTool("audit_mcp_config", {
+        config: "{\"mcpServers\":{}}"
+      });
+
+      assert.ok(result.error);
+      assert.notEqual(result.error, "fetch failed");
+      assert.match(result.error, /http:\/\/127\.0\.0\.1:3091/);
+      assert.match(result.error, /ECONNREFUSED/);
+      assert.match(result.error, /AGENT_SECURITY_API_KEY/);
+      assert.match(result.error, /AGENT_SECURITY_BASE_URL/);
+    });
+  });
+
+  it("rewrites 403 responses into user-actionable key guidance", async () => {
+    await withAuditEnv(
+      {
+        AGENT_SECURITY_BASE_URL: "https://audit.example.com",
+        AGENT_SECURITY_API_KEY: "test-key"
+      },
+      async (load) => {
+        global.fetch = async () => ({
+          ok: false,
+          status: 403,
+          text: async () => JSON.stringify({
+            error: "Audit API only accepts direct loopback clients unless AGENT_SECURITY_API_KEY is configured"
+          })
+        });
+
+        const freshModule = load();
+        const result = await freshModule.runAuditTool("audit_mcp_config", {
+          config: "{\"mcpServers\":{}}"
+        });
+
+        assert.ok(result.error);
+        assert.match(result.error, /403/);
+        assert.match(result.error, /AGENT_SECURITY_API_KEY was not accepted/);
+        assert.match(result.error, /audit\.example\.com/);
+        assert.doesNotMatch(result.error, /loopback/i);
+      }
+    );
+  });
+});
+
 describe("MCP proxy — rate limiting", () => {
   it("tracks mcpRequestCount across calls", async () => {
     // Each call to runAuditTool increments the counter.

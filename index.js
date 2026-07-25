@@ -100,6 +100,130 @@ function resolveBaseUrl(options = {}) {
   return `http://${formatHostForUrl(host)}:${port}`;
 }
 
+// Transport-level failure codes that mean "the audit API was never reached".
+// `fetch` (undici) surfaces all of these as a bare `TypeError: fetch failed`
+// with the real reason hidden on `error.cause`, which is useless to a user.
+const CONNECTION_ERROR_CODES = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "EHOSTDOWN",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "ENETDOWN",
+  "ETIMEDOUT",
+  "EPIPE",
+  "UND_ERR_SOCKET",
+  "UND_ERR_CONNECT_TIMEOUT"
+]);
+
+function collectErrorCodes(error) {
+  const codes = [];
+  let current = error;
+  let depth = 0;
+
+  while (current && typeof current === "object" && depth < 5) {
+    if (typeof current.code === "string" && current.code) {
+      codes.push(current.code);
+    }
+    if (Array.isArray(current.errors)) {
+      for (const nested of current.errors) {
+        if (nested && typeof nested.code === "string" && nested.code) {
+          codes.push(nested.code);
+        }
+      }
+    }
+    current = current.cause;
+    depth += 1;
+  }
+
+  return codes;
+}
+
+function isConnectionError(error) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  if (error.name === "AbortError") {
+    return false;
+  }
+  if (collectErrorCodes(error).some((code) => CONNECTION_ERROR_CODES.has(code))) {
+    return true;
+  }
+
+  return error.name === "TypeError" ||
+    String(error.message || "").trim().toLowerCase() === "fetch failed";
+}
+
+function describeConnectionCause(error) {
+  const codes = collectErrorCodes(error);
+  if (codes.length) {
+    return codes[0];
+  }
+
+  let current = error;
+  let depth = 0;
+  let detail = "";
+  while (current && typeof current === "object" && depth < 5) {
+    const message = String(current.message || "").trim();
+    if (message && message.toLowerCase() !== "fetch failed") {
+      detail = message;
+      break;
+    }
+    current = current.cause;
+    depth += 1;
+  }
+
+  return detail;
+}
+
+function isLoopbackBaseUrl(baseUrl) {
+  try {
+    return isLoopbackHost(new URL(baseUrl).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Turn an unreachable-endpoint failure into a message that names the URL that
+ * was tried and the environment variable that changes it.
+ */
+function buildConnectionErrorMessage(error, baseUrl) {
+  const target = typeof baseUrl === "string" && baseUrl.trim() ? baseUrl.trim() : "the audit API";
+  const cause = describeConnectionCause(error);
+  const parts = [`Could not reach the audit API at ${target}${cause ? ` (${cause})` : ""}.`];
+
+  if (isLoopbackBaseUrl(target)) {
+    parts.push(
+      "Nothing is listening on that address, so no audit backend is running locally.",
+      `Set AGENT_SECURITY_API_KEY to use the managed API at ${DEFAULT_HOSTED_BASE_URL}, set AGENT_SECURITY_BASE_URL to your own https:// audit API origin, or start a self-hosted backend on AGENT_SECURITY_HOST/AGENT_SECURITY_PORT.`
+    );
+  } else {
+    parts.push(
+      "Check network connectivity to that host, and set AGENT_SECURITY_BASE_URL if the audit API lives somewhere else."
+    );
+  }
+
+  return parts.join(" ");
+}
+
+/**
+ * Client-facing 403 text. The backend's own 403 body describes its loopback
+ * trust model, which is meaningless to a user of this package — tell them what
+ * they can act on instead: their API key was not accepted.
+ */
+function buildForbiddenMessage(baseUrl, hasApiKey) {
+  const target = typeof baseUrl === "string" && baseUrl.trim() ? baseUrl.trim() : "the audit API";
+
+  if (hasApiKey) {
+    return `Audit API at ${target} rejected this request (403 Forbidden): the API key in AGENT_SECURITY_API_KEY was not accepted. Confirm the key is correct, still active, and issued for this endpoint.`;
+  }
+
+  return `Audit API at ${target} rejected this request (403 Forbidden): no API key was sent. Set AGENT_SECURITY_API_KEY to a key issued for this audit API.`;
+}
+
 const BASE_URL = resolveBaseUrl({
   baseUrl: RAW_BASE_URL,
   host: RAW_HOST,
@@ -115,7 +239,10 @@ module.exports = {
   HOST,
   BASE_URL,
   DEFAULT_HOSTED_BASE_URL,
+  buildConnectionErrorMessage,
+  buildForbiddenMessage,
   formatHostForUrl,
+  isConnectionError,
   isLoopbackHost,
   resolveBaseUrl
 };
