@@ -23,7 +23,7 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       # Trusted publishing (OIDC, tokenless) requires npm >= 11.5.1
-      - run: npm install -g npm@latest
+      - run: npm install -g npm@12.0.1
 
       - name: Verify tag matches package.json version
         run: |
@@ -34,9 +34,11 @@ jobs:
             exit 1
           fi
 
-      - run: npm install
+      - run: npm ci
 
       - run: npm test
+      - run: npm run lint:package
+      - run: npm run audit:prod
 
       # No NODE_AUTH_TOKEN: auth comes from npm trusted publishing (GitHub OIDC).
       # The npm package settings must list this repo + workflow as a trusted publisher.

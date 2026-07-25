@@ -147,7 +147,7 @@ For a self-hosted backend, also set `AGENT_SECURITY_BASE_URL=https://your-audit-
 
 ## Requirements
 
-- Node.js >= 18
+- Node.js >= 20
 - Access to a private audit API. The managed hosted default is `https://audit.leddconsulting.com` when `AGENT_SECURITY_API_KEY` is set. Use `AGENT_SECURITY_BASE_URL` for other hosted HTTPS deployments, or `AGENT_SECURITY_HOST` and `AGENT_SECURITY_PORT` for local/private-network deployments.
 
 ## Provenance

@@ -9,6 +9,9 @@
     "mcp-audit-server": "cli.js"
   },
   "scripts": {
+    "audit:prod": "npm audit --omit=dev --audit-level=moderate",
+    "check": "npm test && npm run lint:package",
+    "lint:package": "publint",
     "mcp:start": "node mcp/index.js",
     "mcp": "node mcp/index.js",
     "test": "node --test test/*.test.js"
@@ -44,11 +47,15 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.0"
   },
+  "devDependencies": {
+    "publint": "0.3.22"
+  },
   "overrides": {
-    "hono": "^4.12.7"
+    "@hono/node-server": "2.0.11",
+    "hono": "4.12.32"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "license": "MIT"
 }
