@@ -1,0 +1,42 @@
+name: MCP Registry
+
+# Publishes server.json to the official MCP Registry so the listing tracks npm.
+# Runs automatically after a successful Publish (npm) run, or on manual dispatch
+# for a version that already reached npm.
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [Publish]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  registry:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    permissions:
+      contents: read
+      id-token: write # OIDC — authenticates the io.github.* namespace, no stored secrets
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m).tar.gz" | tar xz mcp-publisher
+
+      - name: Verify server.json version matches the published npm version
+        run: |
+          SJ_VERSION="$(node -p "require('./server.json').version")"
+          NPM_VERSION="$(npm view ledd-mcp-audit-server version)"
+          if [ "$SJ_VERSION" != "$NPM_VERSION" ]; then
+            echo "server.json ${SJ_VERSION} does not match npm latest ${NPM_VERSION} — refusing to publish a mismatched listing" >&2
+            exit 1
+          fi
+
+      - run: ./mcp-publisher login github-oidc
+      - run: ./mcp-publisher publish
