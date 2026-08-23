@@ -6,12 +6,12 @@
     "url": "https://github.com/joepangallo/mcp-audit-server",
     "source": "github"
   },
-  "version": "3.0.0",
+  "version": "3.0.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "ledd-mcp-audit-server",
-      "version": "3.0.0",
+      "version": "3.0.1",
       "transport": {
         "type": "stdio"
       },

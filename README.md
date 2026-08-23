@@ -152,7 +152,7 @@ For a self-hosted backend, also set `AGENT_SECURITY_BASE_URL=https://your-audit-
 
 ## Provenance
 
-Versions `2.0.0` through `2.1.0` were published before the release workflow existed and do not carry provenance attestations. Version `3.0.0` and later are released through the provenance-enabled trusted-publishing workflow.
+Versions `2.0.0` through `2.1.0` were published before the release workflow existed and do not carry provenance attestations. Version `3.0.1` and later are released through the provenance-enabled trusted-publishing workflow.
 
 The release workflow in [`.github/workflows/publish.yml`](./.github/workflows/publish.yml) publishes `v*` tags with [npm provenance](https://docs.npmjs.com/generating-provenance-statements) (`npm publish --provenance`) via npm trusted publishing (OIDC — no long-lived token). Verify a release with `npm audit signatures` and the provenance badge on npmjs.com.
 

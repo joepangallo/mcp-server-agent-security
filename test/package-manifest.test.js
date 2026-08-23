@@ -22,9 +22,15 @@ test("npm pack dry-run includes the public proxy entrypoints", async () => {
       maxBuffer: 10 * 1024 * 1024
     });
     const packOutput = JSON.parse(stdout);
-    const filePaths = new Set((packOutput[0] && packOutput[0].files ? packOutput[0].files : []).map((entry) => entry.path));
+    const packRecord = Array.isArray(packOutput)
+      ? packOutput[0]
+      : packOutput && typeof packOutput === "object"
+        ? packOutput["ledd-mcp-audit-server"]
+        : undefined;
+    assert.ok(packRecord, "npm pack returned package metadata");
+    const filePaths = new Set((packRecord.files || []).map((entry) => entry.path));
 
-    assert.equal(packOutput[0].name, "ledd-mcp-audit-server");
+    assert.equal(packRecord.name, "ledd-mcp-audit-server");
     assert.ok(filePaths.has("index.js"));
     assert.ok(filePaths.has("cli.js"));
     assert.ok(filePaths.has("CHANGELOG.md"));

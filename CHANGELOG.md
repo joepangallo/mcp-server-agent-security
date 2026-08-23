@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.0.1 (2026-08-23)
+
+- Made the package archive assertion compatible with both npm 11's array-shaped `npm pack --json` output and npm 12's package-keyed output, so the trusted-publishing gate runs under the publisher's npm version.
+- This is the first 3.x package submitted to npm; the `v3.0.0` workflow stopped at its pre-publish test gate and did not upload an artifact.
+
 ## 3.0.0 (2026-08-23)
 
 ### Breaking

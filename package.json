@@ -1,6 +1,6 @@
 {
   "name": "ledd-mcp-audit-server",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "MCP server interface for AI agent and MCP security auditing — config analysis, trust audits, prompt injection testing, tool probing, and data flow tracing",
   "mcpName": "io.github.joepangallo/mcp-audit-server",
   "type": "commonjs",
