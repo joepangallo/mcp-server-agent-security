@@ -23,7 +23,7 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       # Trusted publishing (OIDC, tokenless) requires npm >= 11.5.1
-      - run: npm install -g npm@12.0.1
+      - run: npm install -g npm@12.0.2
 
       - name: Verify tag matches package.json version
         run: |

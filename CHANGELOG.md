@@ -1,9 +1,9 @@
 # Changelog
 
-## Unreleased
+## 3.0.0 (2026-08-23)
 
 ### Breaking
-- The next published release requires Node.js 20 or newer. Node 18 is end-of-life, and the patched Hono Node adapter used by the MCP SDK requires Node 20. Publish this as the next major version rather than a patch/minor update.
+- Requires Node.js 20 or newer. Node 18 is end-of-life, and the patched Hono Node adapter used by the MCP SDK requires Node 20.
 
 ### Fixed
 - Unreachable-backend failures no longer surface as a bare `fetch failed`. The CLI and MCP proxy now report the exact URL that was tried, the underlying transport code (e.g. `ECONNREFUSED`), and the environment variables that point the client somewhere else — this was the first-run experience for anyone without a local audit API on `http://127.0.0.1:3091`.

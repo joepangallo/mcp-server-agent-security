@@ -1,6 +1,6 @@
 {
   "name": "ledd-mcp-audit-server",
-  "version": "2.1.0",
+  "version": "3.0.0",
   "description": "MCP server interface for AI agent and MCP security auditing — config analysis, trust audits, prompt injection testing, tool probing, and data flow tracing",
   "mcpName": "io.github.joepangallo/mcp-audit-server",
   "type": "commonjs",
@@ -45,14 +45,14 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.17.0"
+    "@modelcontextprotocol/sdk": "^1.30.0"
   },
   "devDependencies": {
-    "publint": "0.3.22"
+    "publint": "^0.3.24"
   },
   "overrides": {
-    "@hono/node-server": "2.0.11",
-    "hono": "4.12.32"
+    "@hono/node-server": "2.1.1",
+    "hono": "4.13.3"
   },
   "engines": {
     "node": ">=20"

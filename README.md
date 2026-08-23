@@ -152,9 +152,9 @@ For a self-hosted backend, also set `AGENT_SECURITY_BASE_URL=https://your-audit-
 
 ## Provenance
 
-**No version published to npm so far carries a provenance attestation.** Versions `2.0.0` through `2.1.0` were published before the release workflow existed, so `npm audit signatures` will report the standard npm registry signature for them and nothing more. Do not treat any currently published tarball as source-verifiable.
+Versions `2.0.0` through `2.1.0` were published before the release workflow existed and do not carry provenance attestations. Version `3.0.0` and later are released through the provenance-enabled trusted-publishing workflow.
 
-The release workflow in [`.github/workflows/publish.yml`](./.github/workflows/publish.yml) is set up to publish on `v*` tags with [npm provenance](https://docs.npmjs.com/generating-provenance-statements) (`npm publish --provenance`) via npm trusted publishing (OIDC — no long-lived tokens). Once a release is actually cut through that workflow — and the package's trusted publisher is registered on npmjs.com — that version will carry a signed, publicly verifiable attestation linking it to the source commit and workflow run. This README will be updated to name the first such version when it ships.
+The release workflow in [`.github/workflows/publish.yml`](./.github/workflows/publish.yml) publishes `v*` tags with [npm provenance](https://docs.npmjs.com/generating-provenance-statements) (`npm publish --provenance`) via npm trusted publishing (OIDC — no long-lived token). Verify a release with `npm audit signatures` and the provenance badge on npmjs.com.
 
 ## License
 

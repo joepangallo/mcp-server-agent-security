@@ -2,6 +2,10 @@
 
 This package replaces the ambiguous `mcp-server-agent-security` name for the thin MCP/CLI proxy.
 
+## Upgrading to 3.0
+
+Version 3 requires Node.js 20 or newer. Upgrade the runtime before installing, then refresh the locked dependency tree. The CLI commands, MCP tool names, and hosted-backend environment variables are unchanged from 2.1.
+
 ## What Changed
 
 - Old package name: `mcp-server-agent-security`
